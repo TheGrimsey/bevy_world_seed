@@ -1,0 +1,9 @@
+[package]
+name = "bevy_terrain_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.14.0"
+bevy_editor_pls = { git = "https://github.com/zhaop/bevy_editor_pls.git", branch = "bevy-0.14" }
+noise = { version = "0.9.0", default-features = false }
