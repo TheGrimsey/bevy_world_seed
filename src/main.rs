@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 use bevy::{
-    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, RED, SILVER}, Color}, ecs::reflect, log::info, math::{Dir3, FloatExt, Quat, Vec2, Vec3}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::Transform}, DefaultPlugins
+    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, RED, SILVER}, Color}, ecs::reflect, log::info, math::{Dir3, FloatExt, Quat, Vec2, Vec3}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use noise::{NoiseFn, Simplex};
@@ -18,7 +20,8 @@ fn main() {
         .add_systems(Startup, spawn_terrain)
         .add_systems(Update, (
             update_mesh_from_heights,
-            debug_draw_terrain_spline.run_if(|draw_debug: Res<DrawDebug>| draw_debug.0)
+            debug_draw_terrain_spline.run_if(|draw_debug: Res<DrawDebug>| draw_debug.0),
+            update_terrain_heights.run_if(on_timer(Duration::from_millis(500)))
         ))
 
         .insert_resource(DrawDebug(true))
@@ -90,6 +93,58 @@ fn update_mesh_from_heights(
     });
 }
 
+fn update_terrain_heights(
+    terrain_noise_layers: Res<TerrainNoiseLayers>,
+    splines: Query<(&TerrainSpline, &GlobalTransform)>,
+    mut heights: Query<(&mut Heights, &GlobalTransform)>
+) {
+    let noise = Simplex::new(1);
+
+    heights.par_iter_mut().for_each(|(mut heights, global_transform)| {
+        // First, set by noise.
+        for (i, val) in heights.0.iter_mut().enumerate() {
+            let mut new_val = 1.0;
+
+            for noise_layer in terrain_noise_layers.layers.iter() {
+                let x = (i % EDGE_LENGTH) as f64 * noise_layer.planar_scale as f64;
+                let y = (i / EDGE_LENGTH) as f64 * noise_layer.planar_scale as f64;
+    
+                new_val *= noise.get([x, y]) as f32 * noise_layer.height_scale;
+            }
+
+            *val = new_val;
+        }
+
+        // Secondly, set by splines.
+        splines.iter().for_each(|(spline, global_transform)|{
+            let box_width = spline.width + spline.falloff;
+
+            for position in spline.curve.iter_positions(80) {
+                let min_x = (((position.x - box_width) / 0.5) as usize).max(0);
+                let min_z = (((position.z - box_width) / 0.5) as usize).max(0);
+        
+                let max_x = (((position.x + box_width) / 0.5) as usize).min(63);
+                let max_z = (((position.z + box_width) / 0.5) as usize).min(63);
+        
+                for z in min_z..max_z {
+                    let row = z * EDGE_LENGTH;
+                    for x in min_x..max_x {
+                        let vertex_position = Vec3::new(x as f32 * 0.5, position.y, z as f32 * 0.5);
+        
+                        let distance = position.distance(vertex_position);
+        
+                        let strength = 1.0 - ((distance - spline.width) / spline.falloff).clamp(0.0, 1.0);
+        
+                        let i = row + x;
+        
+                        heights.0[i] = heights.0[i].lerp(0.25, strength);
+                    }
+                }
+            }
+        });
+    });
+}
+
 fn spawn_terrain(
     mut commands: Commands,
 ) {
@@ -104,59 +159,24 @@ fn spawn_terrain(
         ..default()
     });
 
-    let noise = Simplex::new(1);
-    
-    let mut heights = [0.0; EDGE_LENGTH*EDGE_LENGTH];
-    for (i, val) in heights.iter_mut().enumerate() {
-        let x = (i % EDGE_LENGTH) as f64 / 40.0;
-        let y = (i / EDGE_LENGTH) as f64 / 40.0;
-
-        *val = noise.get([x, y]) as f32 * 2.5;
-    }
-
-    let spline = CubicCardinalSpline::new_catmull_rom(vec![
+    let spline: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(8.0, 1.0, 8.0),
         Vec3::new(16.0, 1.0, 16.0),
         Vec3::new(32.0, 1.0, 32.0),
     ]).to_curve();
 
-    let width = 2.0;
-    let falloff = 1.75;
-
-    let box_width = width + falloff;
-
-    for position in spline.iter_positions(80) {
-        let min_x = (((position.x - box_width) / 0.5) as usize).max(0);
-        let min_z = (((position.z - box_width) / 0.5) as usize).max(0);
-
-        let max_x = (((position.x + box_width) / 0.5) as usize).min(63);
-        let max_z = (((position.z + box_width) / 0.5) as usize).min(63);
-
-        for z in min_z..max_z {
-            let row = z * EDGE_LENGTH;
-            for x in min_x..max_x {
-                let vertex_position = Vec3::new(x as f32 * 0.5, position.y, z as f32 * 0.5);
-
-                let distance = position.distance(vertex_position);
-
-                let strength = 1.0 - ((distance - width) / falloff).clamp(0.0, 1.0);
-
-                let i = row + x;
-
-                heights[i] = heights[i].lerp(0.25, strength);
-            }
-        }
-    }
-
-    commands.spawn(TerrainSpline {
-        curve: spline,
-        width,
-        falloff
-    });
+    commands.spawn((
+        TerrainSpline {
+            curve: spline,
+            width: 2.0,
+            falloff: 1.5
+        },
+        TransformBundle::default()
+    ));
 
     commands.spawn((
-        Heights(heights.into()),
+        Heights([0.0; EDGE_LENGTH*EDGE_LENGTH].into()),
         TransformBundle::default(),
         VisibilityBundle::default()
     ));
