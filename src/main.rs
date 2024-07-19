@@ -103,20 +103,20 @@ fn update_terrain_heights(
     heights.par_iter_mut().for_each(|(mut heights, global_transform)| {
         // First, set by noise.
         for (i, val) in heights.0.iter_mut().enumerate() {
-            let mut new_val = 1.0;
+            let mut new_val = 0.0;
 
             for noise_layer in terrain_noise_layers.layers.iter() {
                 let x = (i % EDGE_LENGTH) as f64 * noise_layer.planar_scale as f64;
                 let y = (i / EDGE_LENGTH) as f64 * noise_layer.planar_scale as f64;
     
-                new_val *= noise.get([x, y]) as f32 * noise_layer.height_scale;
+                new_val += noise.get([x, y]) as f32 * noise_layer.height_scale;
             }
 
             *val = new_val;
         }
 
         // Secondly, set by splines.
-        splines.iter().for_each(|(spline, global_transform)|{
+        splines.iter().for_each(|(spline, global_transform)| {
             let box_width = spline.width + spline.falloff;
 
             for position in spline.curve.iter_positions(80) {
@@ -137,7 +137,7 @@ fn update_terrain_heights(
         
                         let i = row + x;
         
-                        heights.0[i] = heights.0[i].lerp(0.25, strength);
+                        heights.0[i] = heights.0[i].lerp(position.y, strength);
                     }
                 }
             }
@@ -161,8 +161,8 @@ fn spawn_terrain(
 
     let spline: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
         Vec3::new(0.0, 1.0, 0.0),
-        Vec3::new(8.0, 1.0, 8.0),
-        Vec3::new(16.0, 1.0, 16.0),
+        Vec3::new(8.0, 0.0, 8.0),
+        Vec3::new(16.0, 0.0, 16.0),
         Vec3::new(32.0, 1.0, 32.0),
     ]).to_curve();
 
@@ -187,11 +187,16 @@ fn debug_draw_terrain_spline(
     query: Query<&TerrainSpline>
 ) {
     query.iter().for_each(|spline| {
-        for position in spline.curve.iter_positions(40) {
-            gizmos.line(position, position + Vec3::Y, Color::from(BLUE));
+        for (a, b) in spline.curve.iter_positions(40).zip(spline.curve.iter_positions(40).skip(1)) {
+            gizmos.line(a, a + Vec3::Y, Color::from(BLUE));
 
-            gizmos.circle(position, Dir3::Y, spline.width, Color::from(BLUE));
-            gizmos.circle(position, Dir3::Y, spline.width + spline.falloff, Color::from(RED));
+            gizmos.line(a, b, Color::from(BLUE));
+
+            let distance = a.distance(b);
+
+            gizmos.rect(a.lerp(b, 0.5), Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()) * Quat::from_axis_angle(Vec3::Z, 45.0_f32.to_radians()), Vec2::new(distance, spline.width*2.0), Color::from(BLUE));
+            //gizmos.circle(position, Dir3::Y, spline.width, Color::from(BLUE));
+            //gizmos.circle(position, Dir3::Y, spline.width + spline.falloff, Color::from(RED));
         }
     });
 }
