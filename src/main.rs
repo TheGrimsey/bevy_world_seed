@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::{
-    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, RED, SILVER}, Color}, ecs::reflect, log::info, math::{Dir3, FloatExt, Quat, Vec2, Vec3}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
+    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, RED, SILVER}, Color}, ecs::reflect, log::info, math::{Dir3, FloatExt, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use noise::{NoiseFn, Simplex};
@@ -117,28 +117,28 @@ fn update_terrain_heights(
 
         // Secondly, set by splines.
         splines.iter().for_each(|(spline, global_transform)| {
-            let box_width = spline.width + spline.falloff;
+            for (i, val) in heights.0.iter_mut().enumerate() {
+                let x = i % EDGE_LENGTH;
+                let z = i / EDGE_LENGTH;
 
-            for position in spline.curve.iter_positions(80) {
-                let min_x = (((position.x - box_width) / 0.5) as usize).max(0);
-                let min_z = (((position.z - box_width) / 0.5) as usize).max(0);
-        
-                let max_x = (((position.x + box_width) / 0.5) as usize).min(63);
-                let max_z = (((position.z + box_width) / 0.5) as usize).min(63);
-        
-                for z in min_z..max_z {
-                    let row = z * EDGE_LENGTH;
-                    for x in min_x..max_x {
-                        let vertex_position = Vec3::new(x as f32 * 0.5, position.y, z as f32 * 0.5);
-        
-                        let distance = position.distance(vertex_position);
-        
-                        let strength = 1.0 - ((distance - spline.width) / spline.falloff).clamp(0.0, 1.0);
-        
-                        let i = row + x;
-        
-                        heights.0[i] = heights.0[i].lerp(position.y, strength);
+                let vertex_position = Vec2::new(x as f32 * 0.5, z as f32 * 0.5);
+                let mut distance = f32::INFINITY;
+                let mut height = None;
+                
+                for position in spline.curve.iter_positions(80) {
+                    let two_dimensional = global_transform.transform_point(position).xz();
+
+                    let new_distance = vertex_position.distance_squared(two_dimensional);
+
+                    if new_distance < distance {
+                        distance = new_distance;
+                        height = Some(position.y);
                     }
+                }
+
+                if let Some(height) = height {
+                    let strength = 1.0 - ((distance.sqrt() - spline.width) / spline.falloff).clamp(0.0, 1.0);
+                    *val = val.lerp(height, strength);
                 }
             }
         });
