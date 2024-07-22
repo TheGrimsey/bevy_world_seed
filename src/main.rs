@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::{
-    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, SILVER}, Color}, math::{FloatExt, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Or, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
+    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, SILVER}, Color}, log::info, math::{FloatExt, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Or, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use noise::{NoiseFn, Simplex};
@@ -33,10 +33,13 @@ fn main() {
                 TerrainNoiseLayer { height_scale: 2.0, planar_scale: 1.0 / 40.0 }
             ],
         })
+        .insert_resource(MaximumSplineSimplificationDistance(3.0))
 
         .register_type::<DrawDebug>()
         .register_type::<TerrainSpline>()
+        .register_type::<TerrainSplineCached>()
         .register_type::<TerrainNoiseLayers>()
+        .register_type::<MaximumSplineSimplificationDistance>()
 
         .run();
 }
@@ -57,6 +60,10 @@ struct TerrainNoiseLayers {
     layers: Vec<TerrainNoiseLayer>
 }
 
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
+/// Points closer than this square distance are removed. 
+struct MaximumSplineSimplificationDistance(f32);
 
 #[derive(Component)]
 struct Heights(Box<[f32]>);
@@ -105,12 +112,22 @@ fn update_mesh_from_heights(
 }
 
 fn update_terrain_spline_cache(
-    mut query: Query<(&mut TerrainSplineCached, &TerrainSpline, &GlobalTransform), Or<(Changed<TerrainSpline>, Changed<GlobalTransform>)>>
+    mut query: Query<(&mut TerrainSplineCached, &TerrainSpline, &GlobalTransform), Or<(Changed<TerrainSpline>, Changed<GlobalTransform>)>>,
+    spline_simplification_distance: Res<MaximumSplineSimplificationDistance>
 ) {
     query.par_iter_mut().for_each(|(mut spline_cached, spline, global_transform)| {
         spline_cached.points.clear();
 
         spline_cached.points.extend(spline.curve.iter_positions(80).map(|point| global_transform.transform_point(point)));
+
+        // Filter points that are very close together.
+        let dedup_distance = (spline.width * spline.width).min(spline_simplification_distance.0);
+
+        let pre_dedup = spline_cached.points.len();
+        spline_cached.points.dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
+        let post = spline_cached.points.len();
+
+        info!("Pre: {pre_dedup} Post: {post}, DIFF: {} (Dedup distance: {dedup_distance})", pre_dedup - post);
 
         spline_cached.width = spline.width;
         spline_cached.falloff = spline.falloff;
@@ -150,14 +167,15 @@ fn update_terrain_heights(
                 let mut distance = f32::INFINITY;
                 let mut height = None;
                 
-                for position in spline.points.iter() {
-                    let two_dimensional = position.xz();
+                for (a, b) in spline.points.iter().zip(spline.points.iter().skip(1)) {
+                    let a_2d = a.xz();
+                    let b_2d = b.xz();
 
-                    let new_distance = vertex_position.distance_squared(two_dimensional);
+                    let (new_distance, t) = minimum_distance(a_2d, b_2d, vertex_position);
 
                     if new_distance < distance {
                         distance = new_distance;
-                        height = Some(position.y);
+                        height = Some(a.lerp(*b, t).y);
                     }
                 }
 
@@ -169,6 +187,23 @@ fn update_terrain_heights(
         });
     });
 }
+
+fn minimum_distance(v: Vec2, w: Vec2, p: Vec2) -> (f32, f32) {
+    // Return minimum distance between line segment vw and point p
+    let l2 = v.distance_squared(w);  // i.e. |w-v|^2 -  avoid a sqrt
+    if l2 == 0.0 {
+        return (p.distance_squared(v), 1.0);   // v == w case
+    }
+    // Consider the line extending the segment, parameterized as v + t (w - v).
+    // We find projection of point p onto the line. 
+    // It falls where t = [(p-v) . (w-v)] / |w-v|^2
+    // We clamp t from [0,1] to handle points outside the segment vw.
+    let t = ((p - v).dot(w - v) / l2).clamp(0.0, 1.0);
+    
+    let projection = v + t * (w - v);  // Projection falls on the segment
+    
+    (p.distance_squared(projection), t)
+  }
 
 fn spawn_terrain(
     mut commands: Commands,
