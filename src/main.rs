@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::{
-    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, RED, SILVER}, Color}, ecs::reflect, log::info, math::{Dir3, FloatExt, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
+    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, SILVER}, Color}, math::{FloatExt, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, StandardMaterial}, prelude::{default, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystemConfigs, Local, Or, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use noise::{NoiseFn, Simplex};
@@ -21,7 +21,10 @@ fn main() {
         .add_systems(Update, (
             update_mesh_from_heights,
             debug_draw_terrain_spline.run_if(|draw_debug: Res<DrawDebug>| draw_debug.0),
-            update_terrain_heights.run_if(on_timer(Duration::from_millis(500)))
+            (
+                update_terrain_spline_cache,
+                update_terrain_heights
+            ).chain().run_if(on_timer(Duration::from_millis(500)))
         ))
 
         .insert_resource(DrawDebug(true))
@@ -66,6 +69,14 @@ struct TerrainSpline {
     falloff: f32
 }
 
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+struct TerrainSplineCached {
+    points: Vec<Vec3>,
+    width: f32,
+    falloff: f32
+}
+
 const EDGE_LENGTH: usize = 64;
 
 fn update_mesh_from_heights(
@@ -93,14 +104,28 @@ fn update_mesh_from_heights(
     });
 }
 
+fn update_terrain_spline_cache(
+    mut query: Query<(&mut TerrainSplineCached, &TerrainSpline, &GlobalTransform), Or<(Changed<TerrainSpline>, Changed<GlobalTransform>)>>
+) {
+    query.par_iter_mut().for_each(|(mut spline_cached, spline, global_transform)| {
+        spline_cached.points.clear();
+
+        spline_cached.points.extend(spline.curve.iter_positions(80).map(|point| global_transform.transform_point(point)));
+
+        spline_cached.width = spline.width;
+        spline_cached.falloff = spline.falloff;
+    });
+}
+
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    splines: Query<(&TerrainSpline, &GlobalTransform)>,
-    mut heights: Query<(&mut Heights, &GlobalTransform)>
+    spline_query: Query<&TerrainSplineCached>,
+    mut heights: Query<(&mut Heights, &GlobalTransform)>,
+    mut noise: Local<Option<Simplex>>
 ) {
-    let noise = Simplex::new(1);
+    let noise = noise.get_or_insert_with(|| Simplex::new(1));
 
-    heights.par_iter_mut().for_each(|(mut heights, global_transform)| {
+    heights.par_iter_mut().for_each(|(mut heights, terrain_transform)| {
         // First, set by noise.
         for (i, val) in heights.0.iter_mut().enumerate() {
             let mut new_val = 0.0;
@@ -116,17 +141,17 @@ fn update_terrain_heights(
         }
 
         // Secondly, set by splines.
-        splines.iter().for_each(|(spline, global_transform)| {
+        spline_query.iter().for_each(|spline| {
             for (i, val) in heights.0.iter_mut().enumerate() {
                 let x = i % EDGE_LENGTH;
                 let z = i / EDGE_LENGTH;
 
-                let vertex_position = Vec2::new(x as f32 * 0.5, z as f32 * 0.5);
+                let vertex_position = terrain_transform.transform_point(Vec3::new(x as f32 * 0.5, 0.0, z as f32 * 0.5)).xz();
                 let mut distance = f32::INFINITY;
                 let mut height = None;
                 
-                for position in spline.curve.iter_positions(80) {
-                    let two_dimensional = global_transform.transform_point(position).xz();
+                for position in spline.points.iter() {
+                    let two_dimensional = position.xz();
 
                     let new_distance = vertex_position.distance_squared(two_dimensional);
 
@@ -172,6 +197,7 @@ fn spawn_terrain(
             width: 2.0,
             falloff: 1.5
         },
+        TerrainSplineCached::default(),
         TransformBundle::default()
     ));
 
@@ -184,17 +210,17 @@ fn spawn_terrain(
 
 fn debug_draw_terrain_spline(
     mut gizmos: Gizmos,
-    query: Query<&TerrainSpline>
+    query: Query<&TerrainSplineCached>
 ) {
-    query.iter().for_each(|spline| {
-        for (a, b) in spline.curve.iter_positions(40).zip(spline.curve.iter_positions(40).skip(1)) {
-            gizmos.line(a, a + Vec3::Y, Color::from(BLUE));
+    query.iter().for_each(|spline: &TerrainSplineCached| {
+        for (a, b) in spline.points.iter().zip(spline.points.iter().skip(1)) {
+            gizmos.line(*a, *a + Vec3::Y, Color::from(BLUE));
 
-            gizmos.line(a, b, Color::from(BLUE));
+            gizmos.line(*a, *b, Color::from(BLUE));
 
-            let distance = a.distance(b);
+            let distance = a.distance(*b);
 
-            gizmos.rect(a.lerp(b, 0.5), Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()) * Quat::from_axis_angle(Vec3::Z, 45.0_f32.to_radians()), Vec2::new(distance, spline.width*2.0), Color::from(BLUE));
+            gizmos.rect(a.lerp(*b, 0.5), Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()) * Quat::from_axis_angle(Vec3::Z, 45.0_f32.to_radians()), Vec2::new(distance, spline.width*2.0), Color::from(BLUE));
             //gizmos.circle(position, Dir3::Y, spline.width, Color::from(BLUE));
             //gizmos.circle(position, Dir3::Y, spline.width + spline.falloff, Color::from(RED));
         }
