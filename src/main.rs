@@ -19,11 +19,11 @@ fn main() {
         // This call to run() starts the app we just built!
         .add_systems(Startup, spawn_terrain)
         .add_systems(Update, (
-            update_mesh_from_heights,
             debug_draw_terrain_spline.run_if(|draw_debug: Res<DrawDebug>| draw_debug.0),
             (
                 update_terrain_spline_cache,
-                update_terrain_heights
+                update_terrain_heights,
+                update_mesh_from_heights,
             ).chain().run_if(on_timer(Duration::from_millis(500)))
         ))
 
