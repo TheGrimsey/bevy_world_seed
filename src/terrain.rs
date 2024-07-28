@@ -14,9 +14,10 @@ pub fn create_terrain_mesh(size: Vec2, edge_length: u16, heights: &[f32]) -> Mes
     let mut indices: Vec<u16> = Vec::with_capacity(num_indices);
 
     for z in 0..z_vertex_count {
+        let tz = z as f32 / (z_vertex_count - 1) as f32;
+        
         for x in 0..x_vertex_count {
             let tx = x as f32 / (x_vertex_count - 1) as f32;
-            let tz = z as f32 / (z_vertex_count - 1) as f32;
 
             let index = z as usize * edge_length as usize + x as usize;
 

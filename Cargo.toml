@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 bevy = "0.14.0"
 bevy_editor_pls = { git = "https://github.com/zhaop/bevy_editor_pls.git", branch = "bevy-0.14" }
+bevy_rapier3d = "0.27.0"
 noise = { version = "0.9.0", default-features = false }
