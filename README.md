@@ -1,5 +1,5 @@
 
-# Terrain Deformation with Splines in Bevy.
+# Terrain Deformation with Splines & Shapes in Bevy.
 
 This uses a spline to flatten terrain (as one would with a road). The terrain heightmap is updated every `500ms`.
 
