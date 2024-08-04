@@ -1,4 +1,6 @@
-use bevy::{math::{Vec2, Vec3}, render::{mesh::{Indices, Mesh, PrimitiveTopology}, render_asset::RenderAssetUsages}};
+use bevy::{math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{Changed, Component, DetectChanges, Entity, GlobalTransform, Query, ReflectComponent, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::{Indices, Mesh, PrimitiveTopology}, render_asset::RenderAssetUsages}, utils::HashMap};
+
+use crate::{DirtyTiles, TerrainSettings};
 
 pub fn create_terrain_mesh(size: Vec2, edge_length: u16, heights: &[f32]) -> Mesh {
     let z_vertex_count = edge_length;
@@ -50,4 +52,40 @@ pub fn create_terrain_mesh(size: Vec2, edge_length: u16, heights: &[f32]) -> Mes
     mesh.compute_smooth_normals();
 
     mesh
+}
+
+#[derive(Component, Reflect, Debug)]
+#[reflect(Component)]
+pub struct TerrainCoordinate(pub(super) IVec2); 
+
+/// Using a Vec<Entity> to prevent accidental overlaps from breaking the previous tile.
+#[derive(Resource, Default)]
+pub(super) struct TileToTerrain(pub(super) HashMap<IVec2, Vec<Entity>>);
+
+pub(super) fn update_tiling(
+    mut tile_to_terrain: ResMut<TileToTerrain>,
+    mut dirty_tiles: ResMut<DirtyTiles>,
+    mut query: Query<(Entity, &mut TerrainCoordinate, &GlobalTransform), Changed<GlobalTransform>>,
+    terrain_setttings: Res<TerrainSettings>
+) {
+    query.iter_mut().for_each(|(entity, mut terrain_coordinate, global_transform)| {
+        let coordinate = global_transform.translation().as_ivec3().xz() >> terrain_setttings.tile_size_power;
+
+        if terrain_coordinate.is_added() || terrain_coordinate.0 != coordinate {
+            if let Some(entries) = tile_to_terrain.0.get_mut(&terrain_coordinate.0) {
+                if let Some(index) = entries.iter().position(|e| *e == entity) {
+                    entries.swap_remove(index);
+                }
+            }
+
+            if let Some(entries) = tile_to_terrain.0.get_mut(&coordinate) {
+                entries.push(entity);
+            } else {
+                tile_to_terrain.0.insert(coordinate, vec![entity]);
+            }
+
+            terrain_coordinate.0 = coordinate;
+            dirty_tiles.0.insert(coordinate);
+        }
+    });
 }

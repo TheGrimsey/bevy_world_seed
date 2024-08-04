@@ -1,11 +1,12 @@
-use bevy::{log::info, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{Bundle, Changed, Component, CubicCurve, Entity, GlobalTransform, Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle}, reflect::Reflect, utils::{HashMap, HashSet}};
+use bevy::{math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{Bundle, Changed, Component, CubicCurve, Entity, GlobalTransform, Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle}, reflect::Reflect, utils::HashMap};
 
-use crate::{DirtyTiles, MaximumSplineSimplificationDistance, TerrainSettings};
+use crate::{DirtyTiles, MaximumSplineSimplificationDistance, TerrainNoiseLayer, TerrainSettings};
 
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
     pub aabb: TerrainTileAabb,
     pub modifier: ShapeModifier,
+    pub operation: ModifierOperation,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle
 }
@@ -25,12 +26,31 @@ pub enum Shape {
 #[reflect(Component)]
 pub struct ShapeModifier {
     pub shape: Shape,
-    pub falloff: f32
+    pub falloff: f32,
+    pub allow_raising: bool,
+    pub allow_lowering: bool
+}
+
+/// Defines to operation the modifier applies to terrain.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub enum ModifierOperation {
+    /// Set the height within the modifier's bounds equal to the modifiers global Y coordinate 
+    #[default]
+    Set,
+    /// Change the height within the modifier's bounds by the entered value.
+    Change(f32),
+    Step {
+        step: f32,
+        smoothing: f32
+    },
+    Noise {
+        noise: TerrainNoiseLayer
+    }
 }
 
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
-    pub aabb: TerrainAabb,
     pub tile_aabb: TerrainTileAabb,
     pub spline: TerrainSpline,
     pub properties: TerrainSplineProperties,
@@ -38,16 +58,11 @@ pub struct TerrainSplineBundle {
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle
 }
+
+/// Defines the order in which to apply the modifier where lower values are applied earlier.
 #[derive(Component, Reflect, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[reflect(Component)]
 pub struct ModifierPriority(pub u32);
-
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
-pub struct TerrainAabb {
-    pub(super) min: Vec2,
-    pub(super) max: Vec2
-}
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
@@ -88,10 +103,10 @@ pub struct TileToModifierMapping {
 }
 
 pub(super) fn update_terrain_spline_cache(
-    mut query: Query<(&mut TerrainSplineCached, &mut TerrainAabb, &TerrainSpline, &TerrainSplineProperties, &GlobalTransform), Or<(Changed<TerrainSpline>, Changed<GlobalTransform>)>>,
+    mut query: Query<(&mut TerrainSplineCached, &TerrainSpline, &TerrainSplineProperties, &GlobalTransform), Or<(Changed<TerrainSplineProperties>, Changed<TerrainSpline>, Changed<GlobalTransform>)>>,
     spline_simplification_distance: Res<MaximumSplineSimplificationDistance>
 ) {
-    query.par_iter_mut().for_each(|(mut spline_cached, mut terrain_aabb, spline, spline_properties, global_transform)| {
+    query.par_iter_mut().for_each(|(mut spline_cached, spline, spline_properties, global_transform)| {
         spline_cached.points.clear();
 
         spline_cached.points.extend(spline.curve.iter_positions(80).map(|point| global_transform.transform_point(point)));
@@ -100,25 +115,6 @@ pub(super) fn update_terrain_spline_cache(
         let dedup_distance = (spline_properties.width * spline_properties.width).min(spline_simplification_distance.0);
 
         spline_cached.points.dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
-
-        let(min, max) = if spline_cached.points.is_empty() {
-            (Vec2::ZERO, Vec2::ZERO)
-        } else {
-            let (min, max) = spline_cached.points.iter().fold((spline_cached.points[0].xz(), spline_cached.points[0].xz()), |(min, max), point| (
-                min.min(point.xz()),
-                max.max(point.xz())
-            ));
-
-            let total_width = spline_properties.falloff + spline_properties.width;
-
-            (
-                min - total_width,
-                max + total_width
-            )
-        };
-
-        terrain_aabb.min = min;
-        terrain_aabb.max = max;
     });
 }
 
@@ -126,16 +122,18 @@ pub(super) fn update_terrain_spline_aabb(
     mut query: Query<(Entity, &TerrainSplineCached, &TerrainSplineProperties, &mut TerrainTileAabb), (Changed<TerrainSplineCached>, Changed<TerrainSplineProperties>)>,
     terrain_settings: Res<TerrainSettings>,
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,
-    mut dirty_priorities: ResMut<DirtyTiles>
+    mut dirty_tiles: ResMut<DirtyTiles>
 ) {
     let tile_size = terrain_settings.tile_size();
 
     query.iter_mut().for_each(|(entity, spline_cached, spline_properties, mut tile_aabb)| {
         for x in tile_aabb.min.x..=tile_aabb.max.x {
             for y in tile_aabb.min.y..=tile_aabb.max.y {
-                if let Some(entries) = tile_to_modifier_mapping.splines.get_mut(&IVec2::new(x, y)) {
+                let tile = IVec2::new(x, y);
+                if let Some(entries) = tile_to_modifier_mapping.splines.get_mut(&tile) {
                     if let Some(index) = entries.iter().position(|entry| entity == entry.entity) {
                         entries.swap_remove(index);
+                        dirty_tiles.0.insert(tile);
                     }
                 }
             }
@@ -171,14 +169,13 @@ pub(super) fn update_terrain_spline_aabb(
                     let min = a_2d.min(b_2d) - spline_properties.width - spline_properties.falloff;
                     let max = a_2d.max(b_2d) + spline_properties.width + spline_properties.falloff;
 
-                    let min_scaled = ((min / tile_size) * 8.0).as_ivec2();
-                    let max_scaled = ((max / tile_size) * 8.0).as_ivec2();
+                    let min_scaled = ((min / tile_size) * 7.0).as_ivec2();
+                    let max_scaled = ((max / tile_size) * 7.0).as_ivec2();
 
                     if min_scaled.x < 8 && min_scaled.y < 8 && max_scaled.x >= 0 && max_scaled.y >= 0 {
-                        
-                        for y in min_scaled.y.max(0)..=max_scaled.y.min(8) {
+                        for y in min_scaled.y.max(0)..=max_scaled.y.min(7) {
                             let i = y * 8;
-                            for x in min_scaled.x.max(0)..=max_scaled.x.min(8) {
+                            for x in min_scaled.x.max(0)..=max_scaled.x.min(7) {
                                 let bit = i + x;
 
                                 overlap_bits |= 1 << bit;
@@ -187,18 +184,20 @@ pub(super) fn update_terrain_spline_aabb(
                     }
                 }
 
-                let entry = TileSplineEntry {
-                    entity,
-                    overlap_bits,
-                };
-
-                if let Some(entries) = tile_to_modifier_mapping.splines.get_mut(&tile) {
-                    entries.push(entry);
-                } else {
-                    tile_to_modifier_mapping.splines.insert(tile, vec![entry]);
+                if overlap_bits != 0 {
+                    let entry = TileSplineEntry {
+                        entity,
+                        overlap_bits,
+                    };
+    
+                    if let Some(entries) = tile_to_modifier_mapping.splines.get_mut(&tile) {
+                        entries.push(entry);
+                    } else {
+                        tile_to_modifier_mapping.splines.insert(tile, vec![entry]);
+                    }
+    
+                    dirty_tiles.0.insert(tile);
                 }
-
-                dirty_priorities.0.insert(tile);
             }
         }
 
@@ -208,7 +207,7 @@ pub(super) fn update_terrain_spline_aabb(
 }
 
 pub(super) fn update_shape_modifier_aabb(
-    mut query: Query<(Entity, &ShapeModifier, &mut TerrainTileAabb, &GlobalTransform), Or<(Changed<ShapeModifier>, Changed<GlobalTransform>)>>,
+    mut query: Query<(Entity, &ShapeModifier, &mut TerrainTileAabb, &GlobalTransform), Or<(Changed<ShapeModifier>, Changed<ModifierOperation>, Changed<GlobalTransform>)>>,
     terrain_settings: Res<TerrainSettings>,
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,
     mut dirty_tiles: ResMut<DirtyTiles>

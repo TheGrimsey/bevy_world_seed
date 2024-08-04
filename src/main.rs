@@ -1,16 +1,22 @@
-use std::time::Duration;
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
+use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, Startup, Update}, asset::{Assets, Handle}, color::{palettes::css::{BLUE, DARK_CYAN, LIGHT_CYAN, RED, SILVER}, Color}, core::Name, log::info_span, math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, Gizmos, IntoSystem, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, time::common_conditions::on_timer, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
+    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::prelude::Collider;
+use debug_draw::TerrainDebugDrawPlugin;
 use noise::{NoiseFn, Simplex};
-use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierPriority, Shape, ShapeModifier, ShapeModifierBundle, TerrainAabb, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainTileAabb, TileToModifierMapping};
-use terrain::create_terrain_mesh;
+use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierOperation, ModifierPriority, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainTileAabb, TileToModifierMapping};
+use terrain::{create_terrain_mesh, update_tiling, TerrainCoordinate, TileToTerrain};
 
+mod debug_draw;
 mod modifiers;
 mod terrain;
+mod material;
 
 // Our Bevy app's entry point
 fn main() {
@@ -19,10 +25,11 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EditorPlugin::new())
+        .add_plugins(TerrainDebugDrawPlugin)
         // This call to run() starts the app we just built!
         .add_systems(Startup, spawn_terrain)
-        .add_systems(Update, (
-            debug_draw_terrain_modifiers.run_if(|draw_debug: Res<DrawDebug>| draw_debug.0),
+        .add_systems(PostUpdate, (
+            update_tiling.before(update_terrain_heights),
             (
                 (
                     (
@@ -31,50 +38,76 @@ fn main() {
                     ).chain(),
                     update_shape_modifier_aabb,
                 ),
-                update_tile_modifier_priorities.run_if(resource_changed::<DirtyTiles>),
-                update_terrain_heights,
+                (
+                    update_tile_modifier_priorities,
+                    update_terrain_heights
+                ).chain().run_if(resource_changed::<DirtyTiles>),
                 update_mesh_from_heights,
-            ).chain().run_if(on_timer(Duration::from_millis(500)))
-        ))
-
-        .insert_resource(DrawDebug(true))
+            ).chain()
+        ).after(TransformSystem::TransformPropagate))
         .insert_resource(TerrainNoiseLayers {
             layers: vec![
-                TerrainNoiseLayer { height_scale: 3.0, planar_scale: 1.0 / 20.0, noise: Simplex::new(1) }
+                TerrainNoiseLayer { height_scale: 3.0, planar_scale: 1.0 / 20.0, seed: 1 }
             ],
         })
         .insert_resource(MaximumSplineSimplificationDistance(3.0))
         .insert_resource(TerrainSettings {
             tile_size_power: 5,
-            edge_length: 65
+            edge_length: 65,
+            max_tile_updates_per_frame: NonZeroU32::new(2).unwrap()
         })
         .init_resource::<DirtyTiles>()
         .init_resource::<TileToModifierMapping>()
+        .init_resource::<TileToTerrain>()
 
-        .register_type::<DrawDebug>()
         .register_type::<TerrainSpline>()
         .register_type::<TerrainSplineCached>()
+        .register_type::<TerrainNoiseLayer>()
         .register_type::<TerrainNoiseLayers>()
-        .register_type::<TerrainAabb>()
         .register_type::<TerrainTileAabb>()
         .register_type::<TerrainSplineProperties>()
         .register_type::<TerrainCoordinate>()
         .register_type::<MaximumSplineSimplificationDistance>()
         .register_type::<ShapeModifier>()
+        .register_type::<ModifierOperation>()
 
         .run();
 }
 
-#[derive(Resource, Reflect)]
-#[reflect(Resource)]
-struct DrawDebug(bool);
+#[derive(Default)]
+struct NoiseCache {
+    seeds: Vec<u32>,
+    noises: Vec<Simplex>
+}
+impl NoiseCache {
+    fn get(&mut self, seed: u32) -> &Simplex {
+        if let Some(index) = self.seeds.iter().position(|existing_seed| *existing_seed == seed) {
+            &self.noises[index]
+        } else {
+            self.seeds.push(seed);
+            self.noises.push(Simplex::new(seed));
+    
+            self.noises.last().unwrap()
+        }
+    }
+}
 
 #[derive(Reflect)]
+#[reflect(Default)]
 struct TerrainNoiseLayer {
     height_scale: f32,
     planar_scale: f32,
-    #[reflect(ignore)]
-    noise: Simplex
+    seed: u32,
+}
+impl TerrainNoiseLayer {
+    pub fn get(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        noise.get([(x * self.planar_scale) as f64, (z  * self.planar_scale) as f64]) as f32 * self.height_scale
+    }
+}
+impl Default for TerrainNoiseLayer {
+    fn default() -> Self {
+        Self { height_scale: 1.0, planar_scale: 1.0, seed: 1 }
+    }
 }
 
 #[derive(Resource, Reflect)]
@@ -87,7 +120,8 @@ struct TerrainNoiseLayers {
 #[reflect(Resource)]
 pub struct TerrainSettings {
     pub tile_size_power: u32,
-    pub edge_length: u32
+    pub edge_length: u32,
+    pub max_tile_updates_per_frame: NonZeroU32
 }
 impl TerrainSettings {
     pub fn tile_size(&self) -> f32 {
@@ -105,10 +139,6 @@ struct MaximumSplineSimplificationDistance(f32);
 
 #[derive(Component)]
 struct Heights(Box<[f32]>);
-
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct TerrainCoordinate(IVec2); 
 
 fn update_mesh_from_heights(
     mut commands: Commands,
@@ -141,20 +171,35 @@ fn update_mesh_from_heights(
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    shape_modifier_query: Query<(&ShapeModifier, &GlobalTransform, &ModifierPriority)>,
+    shape_modifier_query: Query<(&ShapeModifier, &ModifierOperation, &GlobalTransform, &ModifierPriority)>,
     spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties, &ModifierPriority)>,
     mut heights: Query<(&mut Heights, &TerrainCoordinate)>,
-    mut noise: Local<Option<Simplex>>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
-    mut dirty_tiles: ResMut<DirtyTiles>
+    mut dirty_tiles: ResMut<DirtyTiles>,
+    tile_to_terrain: Res<TileToTerrain>,
+    mut tiles_to_generate: Local<Vec<IVec2>>,
+    mut noise_cache: Local<NoiseCache>
 ) {
+    if dirty_tiles.0.is_empty() {
+        return;
+    }
+
     let scale = terrain_settings.tile_size() / (terrain_settings.edge_length - 1) as f32;
 
     let tile_size = terrain_settings.tile_size();
 
-    heights.iter_many(dirty_tiles.0.drain().take(n)).for_each(|(mut heights, terrain_coordinate)| {
-        let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2(); 
+    // Hack for drain on HashSet clearing the set.
+    tiles_to_generate.extend(dirty_tiles.0.iter().take(terrain_settings.max_tile_updates_per_frame.get() as usize));
+    
+    for tile in tiles_to_generate.iter() {
+        dirty_tiles.0.remove(tile);
+    }
+
+    let mut iter = heights.iter_many_mut(tiles_to_generate.drain(..).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten());
+
+    while let Some((mut heights, terrain_coordinate)) = iter.fetch_next() {
+        let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
 
         // First, set by noise.
         {
@@ -168,10 +213,7 @@ fn update_terrain_heights(
                 let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
     
                 for noise_layer in terrain_noise_layers.layers.iter() {
-                    let noise_x = vertex_position.x * noise_layer.planar_scale;
-                    let noise_z = vertex_position.y * noise_layer.planar_scale;
-        
-                    new_val += noise_layer.noise.get([noise_x as f64, noise_z as f64]) as f32 * noise_layer.height_scale;
+                    new_val += noise_layer.get(vertex_position.x, vertex_position.y, noise_cache.get(noise_layer.seed));
                 }
     
                 *val = new_val;
@@ -182,7 +224,7 @@ fn update_terrain_heights(
         if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
             let _span = info_span!("Apply shape modifiers").entered();
             
-            shape_modifier_query.iter_many(shapes.iter()).for_each(|(modifier, global_transform, _)| {
+            shape_modifier_query.iter_many(shapes.iter()).for_each(|(modifier, operation, global_transform, _)| {
                 let shape_translation = global_transform.translation().xz();
     
                 match modifier.shape {
@@ -195,10 +237,7 @@ fn update_terrain_heights(
     
                             let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0);
     
-                            // Relative position so we can apply the rotation from the shape modifier. This gets us tilted circles.
-                            let position = vertex_position - shape_translation;
-    
-                            *val = val.lerp(global_transform.transform_point(Vec3::new(position.x, 0.0, position.y)).y, strength);
+                            *val = apply_modifier(modifier, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache);
                         }
                     },
                     Shape::Rectangle { x, z } => {
@@ -218,10 +257,7 @@ fn update_terrain_heights(
     
                             let strength = 1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0);
     
-                            // Relative position so we can apply the rotation from the shape modifier. This gets us tilted shapes.
-                            let position = vertex_position - shape_translation;
-    
-                            *val = val.lerp(global_transform.transform_point(Vec3::new(position.x, 0.0, position.y)).y, strength);
+                            *val = apply_modifier(modifier, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache);
                         }
                     },
                 }
@@ -238,13 +274,14 @@ fn update_terrain_heights(
                         let x = i % terrain_settings.edge_length as usize;
                         let z = i / terrain_settings.edge_length as usize;
         
-                        let overlaps = (Vec2::new(x as f32 * scale, z as f32 * scale) / tile_size * 8.0).as_ivec2();
+                        let local_vertex_position = Vec2::new(x as f32 * scale, z as f32 * scale);
+                        let overlaps = (local_vertex_position / tile_size * 7.0).as_ivec2();
                         let overlap_index = overlaps.y * 8 + overlaps.x;
                         if (entry.overlap_bits & 1 << overlap_index) == 0 {
                             continue;
                         }
     
-                        let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
+                        let vertex_position = terrain_translation + local_vertex_position;
                         let mut distance = f32::INFINITY;
                         let mut height = None;
     
@@ -268,7 +305,37 @@ fn update_terrain_heights(
                 }
             }
         }
-    });
+    }
+}
+
+fn apply_modifier(modifier: &ShapeModifier, operation: &ModifierOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>) -> f32 {
+    let mut new_val = match operation {
+        ModifierOperation::Set => {
+            // Relative position so we can apply the rotation from the shape modifier. This gets us tilted circles.
+            let position = vertex_position - shape_translation;
+
+            val.lerp(global_transform.transform_point(Vec3::new(position.x, 0.0, position.y)).y, strength)
+        },
+        ModifierOperation::Change(change) => {
+            val + *change * strength
+        },
+        ModifierOperation::Step { step, smoothing } => {
+            val.lerp((((val / *step) * smoothing).round() / smoothing) * *step , strength)
+        },
+        ModifierOperation::Noise { noise } => {
+            val.lerp(noise.get(vertex_position.x, vertex_position.y, noise_cache.get(noise.seed)), strength)
+        },
+    };
+
+    if !modifier.allow_raising {
+        new_val = new_val.min(val);
+    }
+    if !modifier.allow_lowering {
+        new_val = new_val.max(val);
+    }
+
+    new_val
+
 }
 
 fn minimum_distance(v: Vec2, w: Vec2, p: Vec2) -> (f32, f32) {
@@ -314,7 +381,6 @@ fn spawn_terrain(
 
     commands.spawn((
         TerrainSplineBundle {
-            aabb: TerrainAabb::default(),
             tile_aabb: TerrainTileAabb::default(),
             spline: TerrainSpline {
                 curve: spline
@@ -338,7 +404,10 @@ fn spawn_terrain(
                     radius: 4.0
                 },
                 falloff: 4.0,
+                allow_lowering: true,
+                allow_raising: true
             },
+            operation: ModifierOperation::Set,
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
         },
@@ -354,8 +423,11 @@ fn spawn_terrain(
                     z: 10.0
                 },
                 falloff: 12.0,
+                allow_raising: true,
+                allow_lowering: true
             },
-            priority: ModifierPriority(1),
+            operation: ModifierOperation::Set,
+            priority: ModifierPriority(2),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(48.0, 5.0, 10.0))),
         },
         Name::new("Modifier (Rectangle)")
@@ -373,7 +445,7 @@ fn spawn_terrain(
     ));
 
     commands.spawn((
-        TerrainCoordinate(IVec2::new(1, 0)),
+        TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, 0.0))),
         VisibilityBundle::default(),
@@ -381,7 +453,7 @@ fn spawn_terrain(
     ));
     
     commands.spawn((
-        TerrainCoordinate(IVec2::new(0, 1)),
+        TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(0.0, 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
@@ -389,7 +461,7 @@ fn spawn_terrain(
     ));
     
     commands.spawn((
-        TerrainCoordinate(IVec2::new(1, 1)),
+        TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
@@ -414,46 +486,5 @@ fn spawn_terrain(
             }),
             ..default()
         });
-    });
-}
-
-fn debug_draw_terrain_modifiers(
-    mut gizmos: Gizmos,
-    spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties, &TerrainTileAabb)>,
-    shape_query: Query<(&ShapeModifier, &GlobalTransform)>,
-    terrain_settings: Res<TerrainSettings>
-) {
-    spline_query.iter().for_each(|(spline, spline_properties, terrain_abb)| {
-        for (a, b) in spline.points.iter().zip(spline.points.iter().skip(1)) {
-            gizmos.line(*a, *a + Vec3::Y, Color::from(BLUE));
-
-            gizmos.line(*a, *b, Color::from(BLUE));
-
-            let distance = a.distance(*b);
-
-            gizmos.rect(a.lerp(*b, 0.5), Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()) * Quat::from_axis_angle(Vec3::Z, 45.0_f32.to_radians()), Vec2::new(distance, spline_properties.width*2.0), Color::from(BLUE));
-        
-            // Debug draw AABB.
-            for x in terrain_abb.min.x..=terrain_abb.max.x {
-                for y in terrain_abb.min.y..=terrain_abb.max.y {
-                    gizmos.rect(Vec3::new((x << terrain_settings.tile_size_power) as f32 + terrain_settings.tile_size() / 2.0, 0.0, (y << terrain_settings.tile_size_power) as f32 + terrain_settings.tile_size() / 2.0), Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()), Vec2::splat(terrain_settings.tile_size()), Color::from(BLUE));        
-                }
-            }
-        }
-    });
-
-    shape_query.iter().for_each(|(shape, global_transform)| {
-        match shape.shape {
-            Shape::Circle { radius } => {
-                gizmos.circle(global_transform.translation(), global_transform.up(), radius, Color::from(LIGHT_CYAN));
-
-                // Falloff.
-                gizmos.circle(global_transform.translation(), global_transform.up(), shape.falloff + radius, Color::from(DARK_CYAN));
-            },
-            Shape::Rectangle { x, z } => {
-                let (_, rot, translation) = global_transform.to_scale_rotation_translation();
-                gizmos.rect(translation, rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()), Vec2::new(x, z), Color::from(LIGHT_CYAN));
-            },
-        }
     });
 }
