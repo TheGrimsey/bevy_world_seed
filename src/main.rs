@@ -4,7 +4,7 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
+    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::{info, info_span}, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::prelude::Collider;
@@ -144,14 +144,24 @@ fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>), Changed<Heights>>,
+    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &TerrainCoordinate), Changed<Heights>>,
+    heights_query: Query<&Heights>,
     mut terrain_material: Local<Option<Handle<StandardMaterial>>>,
-    terrain_settings: Res<TerrainSettings>
+    terrain_settings: Res<TerrainSettings>,
+    tile_to_terrain: Res<TileToTerrain>,
 ) {
     let material = terrain_material.get_or_insert_with(|| materials.add(StandardMaterial::from_color(Color::from(SILVER))));
 
-    query.iter().for_each(|(entity, heights, mesh_handle)| {
-        let mesh = create_terrain_mesh(Vec2::splat(terrain_settings.tile_size()), terrain_settings.edge_length.try_into().unwrap(), &heights.0);
+    query.iter().for_each(|(entity, heights, mesh_handle, terrain_coordinate)| {
+        let neighbors = [
+            tile_to_terrain.0.get(&(terrain_coordinate.0 - IVec2::X)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
+            tile_to_terrain.0.get(&(terrain_coordinate.0 + IVec2::X)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
+            tile_to_terrain.0.get(&(terrain_coordinate.0 - IVec2::Y)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
+            tile_to_terrain.0.get(&(terrain_coordinate.0 + IVec2::Y)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
+        ];
+
+        info!("Tile: {}", terrain_coordinate.0);
+        let mesh = create_terrain_mesh(terrain_settings.tile_size(), terrain_settings.edge_length.try_into().unwrap(), &heights.0, &neighbors);
 
         if let Some(existing_mesh) = mesh_handle.and_then(|handle| meshes.get_mut(handle)) {
             *existing_mesh = mesh;

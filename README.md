@@ -13,5 +13,8 @@ This uses a spline to flatten terrain (as one would with a road). The terrain he
 - [ ] Take into account the next tile for normals at the edge.
 *We get weird edges right now because the smooth normals only account for what exists on the tile.*
 
+- [ ] Holes!
+*Terrain needs holes so you can move into caves and stuff.*
+
 - [X] Dirty Terrain Tiles map.
 *Like in OxiNav, append a tile id when it is dirtied (by a shape or otherwise) & heights need to be updated.*
