@@ -462,21 +462,21 @@ fn spawn_terrain(
         Name::new("Terrain 2")
     ));
     
-    commands.spawn((
+    /*commands.spawn((
         TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(0.0, 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain 3")
-    ));
+    ));*/
     
-    commands.spawn((
+    /*commands.spawn((
         TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain 4")
-    ));
+    ));*/
 
     commands.spawn((
         PbrBundle {

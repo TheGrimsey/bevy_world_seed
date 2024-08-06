@@ -40,8 +40,6 @@ pub fn create_terrain_mesh(size: f32, edge_length: u16, heights: &[f32], neighbo
         }
     }
 
-    info!("Pos: {positions:?}");
-
     // Create triangles.
     for z in 0..vertex_count - 1 {
         for x in 0..vertex_count - 1 {
@@ -56,6 +54,7 @@ pub fn create_terrain_mesh(size: f32, edge_length: u16, heights: &[f32], neighbo
     }
 
     // Generate normals
+    let mut normal_points = vec![Vec::default(); positions.len()];
     let mut normals = vec![Vec3::ZERO; positions.len()];
     let mut adjacency_counts = vec![0_u8; positions.len()];
 
@@ -65,6 +64,10 @@ pub fn create_terrain_mesh(size: f32, edge_length: u16, heights: &[f32], neighbo
             let [a, b, c] = [face[0], face[1], face[2]];
             let normal = face_normal(positions[a as usize], positions[b as usize], positions[c as usize]);
             
+            normal_points[a as usize].extend([positions[b as usize], positions[c as usize]]);
+            normal_points[b as usize].extend([positions[a as usize], positions[c as usize]]);
+            normal_points[c as usize].extend([positions[b as usize], positions[a as usize]]);
+
             [a, b, c].iter().for_each(|pos| {
                 normals[*pos as usize] += normal;
                 adjacency_counts[*pos as usize] += 1;
@@ -75,11 +78,80 @@ pub fn create_terrain_mesh(size: f32, edge_length: u16, heights: &[f32], neighbo
     
     let vertex_edge = (vertex_count - 1) as f32;
     let step = (1.0 / vertex_edge) * size;
-    // Bottom row.
-    if let Some(neighbors) = neighbours[2] {
-        let neighbor_row = &neighbors[edge_length as usize * (edge_length as usize -1)..];
 
-        info!("BOT");
+    // -X direction.
+    if let Some(neighbors) = neighbours[0] {
+        //let itr = neighbors.iter().enumerate().skip(edge_length as usize - 2).step_by(edge_length.into()).collect::<Box<[_]>>();
+        //info!("({}) {itr:?}", itr.len());
+
+        // Ignoring corners.
+        for x in (0..(num_vertices - edge_length as usize)).skip(edge_length.into()).step_by(edge_length.into()) {
+            let s = positions[x];
+            // 3 bottom triangles.
+
+            let a_i = x + edge_length as usize;
+            let a = Vec3::new(s.x, heights[a_i], s.z + step);
+            let b_i = x + edge_length as usize - 1;
+            let b = Vec3::new(s.x - step, neighbors[b_i], s.z + step);
+            let c_i = x + edge_length as usize - 2;
+            let c = Vec3::new(s.x - step, neighbors[c_i], s.z);
+            let d_i = x - edge_length as usize;
+            let d = Vec3::new(s.x, heights[d_i], s.z - step);
+            
+            //info!("A ({a_i}): {a}, B({b_i}): {b}, C({c_i}): {c}, D({d_i}): {d}, S({x}): {s}");
+
+            let face_a = face_normal(b, a, s);
+            let face_b = face_normal(c, b, s);
+            let face_c = face_normal(d, c, s);
+
+            adjacency_counts[x] += 3;
+
+            normals[x] += face_a + face_b + face_c;
+
+            normal_points[x].extend([a,b,c,d]);
+
+            //info!("Points: {:?}", normal_points[x])
+        }
+    }
+
+    // +X direction.
+    if let Some(neighbors) = neighbours[1] {
+        //let itr = neighbors.iter().enumerate().skip(edge_length as usize - 1).step_by(edge_length.into()).collect::<Box<[_]>>();
+        //info!("({}) {itr:?}", itr.len());
+
+        // Ignoring corners.
+        for x in (0..(num_vertices - edge_length as usize)).skip(edge_length as usize + edge_length as usize - 1).step_by(edge_length.into()) {
+            let s = positions[x];
+            // 3 bottom triangles.
+
+            let a_i = x - edge_length as usize;
+            let a = Vec3::new(s.x, heights[a_i], s.z - step);
+            let b_i = x + 2 - (edge_length*2) as usize;
+            let b = Vec3::new(s.x + step, neighbors[b_i], s.z - step);
+            let c_i = x - edge_length as usize + 1;
+            let c = Vec3::new(s.x + step, neighbors[c_i], s.z);
+            let d_i = x + edge_length as usize;
+            let d = Vec3::new(s.x, heights[d_i], s.z + step);
+            
+            info!("A ({a_i}): {a}, B({b_i}): {b}, C({c_i}): {c}, D({d_i}): {d}, S({x}): {s}");
+
+            let face_a = face_normal(b, a, s);
+            let face_b = face_normal(c, b, s);
+            let face_c = face_normal(d, c, s);
+
+            adjacency_counts[x] += 3;
+
+            normals[x] += face_a + face_b + face_c;
+
+            normal_points[x].extend([a,b,c,d]);
+
+            info!("({}) Points: {:?}", adjacency_counts[x], normal_points[x])
+        }
+    }
+
+    // -Y
+    if let Some(neighbors) = neighbours[2] {
+        let neighbor_row = &neighbors[edge_length as usize * (edge_length as usize - 2)..];
 
         // Ignoring corners.
         for x in 1..(edge_length-1) as usize {
@@ -94,35 +166,29 @@ pub fn create_terrain_mesh(size: f32, edge_length: u16, heights: &[f32], neighbo
             let face_b = face_normal(c, b, s);
             let face_c = face_normal(d, c, s);
 
-            info!("A: {a}, B: {b}, C: {c}, D: {d}, S: {s}");
-            info!("F_A: {face_a}, F_B: {face_b}, F_C: {face_c}");
-
             adjacency_counts[x] += 3;
 
             normals[x] += face_a + face_b + face_c;
         }
     }
+    // +Y
     if let Some(neighbors) = neighbours[3] {
-        let neighbor_row = &neighbors[..edge_length as usize];
+        let neighbor_row = &neighbors[edge_length as usize..(edge_length as usize * 2)];
 
-        info!("TOP");
         // Ignoring corners.
         for x in 1..(edge_length-1) as usize {
             let s_x = (edge_length as usize * (edge_length as usize - 1)) + x;
 
             let s: Vec3 = positions[s_x];
             // 3 top triangles.
-            let a = Vec3::new(s.x + step, heights[x + 1], s.z);
+            let a = Vec3::new(s.x + step, heights[s_x + 1], s.z);
             let b = Vec3::new(s.x, neighbor_row[x], s.z + step);
             let c = Vec3::new(s.x - step, neighbor_row[x - 1], s.z + step);
-            let d = Vec3::new(s.x - step, heights[x - 1], s.z);
+            let d = Vec3::new(s.x - step, heights[s_x - 1], s.z);
             
             let face_a = face_normal(b, a, s);
             let face_b = face_normal(c, b, s);
             let face_c = face_normal(d, c, s);
-
-            info!("A: {a}, B: {b}, C: {c}, D: {d}, S: {s}");
-            info!("F_A: {face_a}, F_B: {face_b}, F_C: {face_c}");
 
             adjacency_counts[s_x] += 3;
 
