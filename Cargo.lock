@@ -1120,6 +1120,7 @@ dependencies = [
  "bevy",
  "bevy_editor_pls",
  "bevy_rapier3d",
+ "fixedbitset 0.5.7",
  "noise",
 ]
 

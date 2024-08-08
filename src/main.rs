@@ -4,7 +4,7 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::{info, info_span}, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
+    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::prelude::Collider;
@@ -160,7 +160,6 @@ fn update_mesh_from_heights(
             tile_to_terrain.0.get(&(terrain_coordinate.0 + IVec2::Y)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
         ];
 
-        info!("Tile: {}", terrain_coordinate.0);
         let mesh = create_terrain_mesh(terrain_settings.tile_size(), terrain_settings.edge_length.try_into().unwrap(), &heights.0, &neighbors);
 
         if let Some(existing_mesh) = mesh_handle.and_then(|handle| meshes.get_mut(handle)) {
@@ -462,21 +461,21 @@ fn spawn_terrain(
         Name::new("Terrain 2")
     ));
     
-    /*commands.spawn((
+    commands.spawn((
         TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(0.0, 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain 3")
-    ));*/
+    ));
     
-    /*commands.spawn((
+    commands.spawn((
         TerrainCoordinate(IVec2::new(0, 0)),
         Heights(flat_heights),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain 4")
-    ));*/
+    ));
 
     commands.spawn((
         PbrBundle {
