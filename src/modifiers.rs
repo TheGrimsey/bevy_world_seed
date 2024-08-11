@@ -1,6 +1,6 @@
-use bevy::{math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{Bundle, Changed, Component, CubicCurve, Entity, GlobalTransform, Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle}, reflect::Reflect, utils::HashMap};
+use bevy::{math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{Bundle, Changed, Component, CubicCurve, Entity, EventReader, EventWriter, GlobalTransform, Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle}, reflect::Reflect, utils::HashMap};
 
-use crate::{DirtyTiles, MaximumSplineSimplificationDistance, TerrainNoiseLayer, TerrainSettings};
+use crate::{RebuildTile, TerrainNoiseLayer, TerrainSettings};
 
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
@@ -104,7 +104,7 @@ pub struct TileToModifierMapping {
 
 pub(super) fn update_terrain_spline_cache(
     mut query: Query<(&mut TerrainSplineCached, &TerrainSpline, &TerrainSplineProperties, &GlobalTransform), Or<(Changed<TerrainSplineProperties>, Changed<TerrainSpline>, Changed<GlobalTransform>)>>,
-    spline_simplification_distance: Res<MaximumSplineSimplificationDistance>
+    terrain_settings: Res<TerrainSettings>
 ) {
     query.par_iter_mut().for_each(|(mut spline_cached, spline, spline_properties, global_transform)| {
         spline_cached.points.clear();
@@ -112,7 +112,7 @@ pub(super) fn update_terrain_spline_cache(
         spline_cached.points.extend(spline.curve.iter_positions(80).map(|point| global_transform.transform_point(point)));
 
         // Filter points that are very close together.
-        let dedup_distance = (spline_properties.width * spline_properties.width).min(spline_simplification_distance.0);
+        let dedup_distance = (spline_properties.width * spline_properties.width).min(terrain_settings.max_spline_simplification_distance);
 
         spline_cached.points.dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
     });
@@ -122,7 +122,7 @@ pub(super) fn update_terrain_spline_aabb(
     mut query: Query<(Entity, &TerrainSplineCached, &TerrainSplineProperties, &mut TerrainTileAabb), (Changed<TerrainSplineCached>, Changed<TerrainSplineProperties>)>,
     terrain_settings: Res<TerrainSettings>,
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,
-    mut dirty_tiles: ResMut<DirtyTiles>
+    mut rebuild_tiles_event: EventWriter<RebuildTile>,
 ) {
     let tile_size = terrain_settings.tile_size();
 
@@ -133,7 +133,7 @@ pub(super) fn update_terrain_spline_aabb(
                 if let Some(entries) = tile_to_modifier_mapping.splines.get_mut(&tile) {
                     if let Some(index) = entries.iter().position(|entry| entity == entry.entity) {
                         entries.swap_remove(index);
-                        dirty_tiles.0.insert(tile);
+                        rebuild_tiles_event.send(RebuildTile(tile));
                     }
                 }
             }
@@ -196,7 +196,7 @@ pub(super) fn update_terrain_spline_aabb(
                         tile_to_modifier_mapping.splines.insert(tile, vec![entry]);
                     }
     
-                    dirty_tiles.0.insert(tile);
+                    rebuild_tiles_event.send(RebuildTile(tile));
                 }
             }
         }
@@ -210,7 +210,7 @@ pub(super) fn update_shape_modifier_aabb(
     mut query: Query<(Entity, &ShapeModifier, &mut TerrainTileAabb, &GlobalTransform), Or<(Changed<ShapeModifier>, Changed<ModifierOperation>, Changed<GlobalTransform>)>>,
     terrain_settings: Res<TerrainSettings>,
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,
-    mut dirty_tiles: ResMut<DirtyTiles>
+    mut rebuild_tiles_event: EventWriter<RebuildTile>,
 ) {
     query.iter_mut().for_each(|(entity, shape, mut tile_aabb, global_transform)| {
         for x in tile_aabb.min.x..=tile_aabb.max.x {
@@ -221,7 +221,7 @@ pub(super) fn update_shape_modifier_aabb(
                     if let Some(index) = entries.iter().position(|existing_entity| entity == *existing_entity) {
                         entries.swap_remove(index);
 
-                        dirty_tiles.0.insert(tile);
+                        rebuild_tiles_event.send(RebuildTile(tile));
                     }
                 }
             }
@@ -255,7 +255,7 @@ pub(super) fn update_shape_modifier_aabb(
                     tile_to_modifier_mapping.shape.insert(tile, vec![entity]);
                 }
 
-                dirty_tiles.0.insert(tile);
+                rebuild_tiles_event.send(RebuildTile(tile));
             }
         }
 
@@ -266,10 +266,10 @@ pub(super) fn update_shape_modifier_aabb(
 
 pub(super) fn update_tile_modifier_priorities(
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,
-    dirty_tiles: Res<DirtyTiles>,
+    mut event_reader: EventReader<RebuildTile>,
     priority_query: Query<&ModifierPriority>,
 ) {
-    for tile in dirty_tiles.0.iter() {
+    for RebuildTile(tile) in event_reader.read() {
         if let Some(entries) = tile_to_modifier_mapping.shape.get_mut(tile) {
             entries.sort_unstable_by(|a, b| priority_query.get(*a).ok().cmp(&priority_query.get(*b).ok()));
         }

@@ -4,26 +4,47 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, PostUpdate, Startup}, asset::{Assets, Handle}, color::{palettes::css::{RED, SILVER}, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Changed, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Entity, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, utils::HashSet, DefaultPlugins
+    app::{App, PostUpdate, Startup}, asset::Assets, color::{palettes::css::RED, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Event, EventReader, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::prelude::Collider;
 use debug_draw::TerrainDebugDrawPlugin;
+#[cfg(feature = "rendering")]
+use material::TerrainTexturingPlugin;
+#[cfg(feature = "rendering")]
+use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierOperation, ModifierPriority, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainTileAabb, TileToModifierMapping};
-use terrain::{create_terrain_mesh, update_tiling, TerrainCoordinate, TileToTerrain};
+use terrain::{update_tiling, TerrainCoordinate, TileToTerrain};
 
 mod debug_draw;
 mod modifiers;
 mod terrain;
+
+#[cfg(feature = "rendering")]
+mod meshing;
+#[cfg(feature = "rendering")]
 mod material;
 
 // Our Bevy app's entry point
 fn main() {
     // Bevy apps are created using the builder pattern. We use the builder to add systems,
     // resources, and plugins to our app
-    App::new()
-        .add_plugins(DefaultPlugins)
+    let mut app = App::new();
+
+
+    app
+        .add_plugins(DefaultPlugins);
+
+    #[cfg(feature = "rendering")]
+    {
+        app.add_plugins((
+            TerrainMeshingPlugin,
+            TerrainTexturingPlugin
+        ));
+    }
+
+    app
         .add_plugins(EditorPlugin::new())
         .add_plugins(TerrainDebugDrawPlugin)
         // This call to run() starts the app we just built!
@@ -39,10 +60,9 @@ fn main() {
                     update_shape_modifier_aabb,
                 ),
                 (
-                    update_tile_modifier_priorities,
+                    update_tile_modifier_priorities.run_if(resource_changed::<TileToModifierMapping>),
                     update_terrain_heights
-                ).chain().run_if(resource_changed::<DirtyTiles>),
-                update_mesh_from_heights,
+                ).chain(),
             ).chain()
         ).after(TransformSystem::TransformPropagate))
         .insert_resource(TerrainNoiseLayers {
@@ -50,13 +70,12 @@ fn main() {
                 TerrainNoiseLayer { height_scale: 3.0, planar_scale: 1.0 / 20.0, seed: 1 }
             ],
         })
-        .insert_resource(MaximumSplineSimplificationDistance(3.0))
         .insert_resource(TerrainSettings {
             tile_size_power: 5,
             edge_length: 65,
-            max_tile_updates_per_frame: NonZeroU32::new(2).unwrap()
+            max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
+            max_spline_simplification_distance: 3.0
         })
-        .init_resource::<DirtyTiles>()
         .init_resource::<TileToModifierMapping>()
         .init_resource::<TileToTerrain>()
 
@@ -67,9 +86,10 @@ fn main() {
         .register_type::<TerrainTileAabb>()
         .register_type::<TerrainSplineProperties>()
         .register_type::<TerrainCoordinate>()
-        .register_type::<MaximumSplineSimplificationDistance>()
         .register_type::<ShapeModifier>()
         .register_type::<ModifierOperation>()
+
+        .add_event::<RebuildTile>()
 
         .run();
 }
@@ -121,7 +141,9 @@ struct TerrainNoiseLayers {
 pub struct TerrainSettings {
     pub tile_size_power: u32,
     pub edge_length: u32,
-    pub max_tile_updates_per_frame: NonZeroU32
+    pub max_tile_updates_per_frame: NonZeroU32,
+    /// Points closer than this square distance are removed. 
+    pub max_spline_simplification_distance: f32,
 }
 impl TerrainSettings {
     pub fn tile_size(&self) -> f32 {
@@ -129,68 +151,32 @@ impl TerrainSettings {
     }
 }
 
-#[derive(Resource, Default)]
-struct DirtyTiles(HashSet<IVec2>);
+#[derive(Event)]
+pub struct RebuildTile(IVec2);
 
-#[derive(Resource, Reflect)]
-#[reflect(Resource)]
-/// Points closer than this square distance are removed. 
-struct MaximumSplineSimplificationDistance(f32);
 
 #[derive(Component)]
 struct Heights(Box<[f32]>);
 
-fn update_mesh_from_heights(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &TerrainCoordinate), Changed<Heights>>,
-    heights_query: Query<&Heights>,
-    mut terrain_material: Local<Option<Handle<StandardMaterial>>>,
-    terrain_settings: Res<TerrainSettings>,
-    tile_to_terrain: Res<TileToTerrain>,
-) {
-    let material = terrain_material.get_or_insert_with(|| materials.add(StandardMaterial::from_color(Color::from(SILVER))));
-
-    query.iter().for_each(|(entity, heights, mesh_handle, terrain_coordinate)| {
-        let neighbors = [
-            tile_to_terrain.0.get(&(terrain_coordinate.0 - IVec2::X)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
-            tile_to_terrain.0.get(&(terrain_coordinate.0 + IVec2::X)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
-            tile_to_terrain.0.get(&(terrain_coordinate.0 - IVec2::Y)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
-            tile_to_terrain.0.get(&(terrain_coordinate.0 + IVec2::Y)).and_then(|entries| entries.first()).and_then(|entity| heights_query.get(*entity).ok()).map(|heights| heights.0.as_ref()),
-        ];
-
-        let mesh = create_terrain_mesh(terrain_settings.tile_size(), terrain_settings.edge_length.try_into().unwrap(), &heights.0, &neighbors);
-
-        if let Some(existing_mesh) = mesh_handle.and_then(|handle| meshes.get_mut(handle)) {
-            *existing_mesh = mesh;
-        } else {
-            let new_handle = meshes.add(mesh);
-
-            commands.entity(entity).insert((
-                new_handle,
-                material.clone()
-            ));
-        }
-
-        commands.entity(entity).insert(Collider::heightfield(heights.0.to_vec(), terrain_settings.edge_length as usize, terrain_settings.edge_length as usize, Vec3::new(terrain_settings.tile_size(), 1.0, terrain_settings.tile_size())));
-    });
-}
-
-
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    shape_modifier_query: Query<(&ShapeModifier, &ModifierOperation, &GlobalTransform, &ModifierPriority)>,
-    spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties, &ModifierPriority)>,
+    shape_modifier_query: Query<(&ShapeModifier, &ModifierOperation, &GlobalTransform)>,
+    spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties)>,
     mut heights: Query<(&mut Heights, &TerrainCoordinate)>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
-    mut dirty_tiles: ResMut<DirtyTiles>,
     tile_to_terrain: Res<TileToTerrain>,
-    mut tiles_to_generate: Local<Vec<IVec2>>,
-    mut noise_cache: Local<NoiseCache>
+    mut tile_generate_queue: Local<Vec<IVec2>>,
+    mut noise_cache: Local<NoiseCache>,
+    mut event_reader: EventReader<RebuildTile>,
 ) {
-    if dirty_tiles.0.is_empty() {
+    for RebuildTile(tile) in event_reader.read() {
+        if !tile_generate_queue.contains(tile) {
+            tile_generate_queue.push(*tile);
+        }
+    }
+
+    if tile_generate_queue.is_empty() {
         return;
     }
 
@@ -198,14 +184,9 @@ fn update_terrain_heights(
 
     let tile_size = terrain_settings.tile_size();
 
-    // Hack for drain on HashSet clearing the set.
-    tiles_to_generate.extend(dirty_tiles.0.iter().take(terrain_settings.max_tile_updates_per_frame.get() as usize));
-    
-    for tile in tiles_to_generate.iter() {
-        dirty_tiles.0.remove(tile);
-    }
+    let tiles_to_generate = tile_generate_queue.len().min(terrain_settings.max_tile_updates_per_frame.get() as usize);
 
-    let mut iter = heights.iter_many_mut(tiles_to_generate.drain(..).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten());
+    let mut iter = heights.iter_many_mut(tile_generate_queue.drain(..tiles_to_generate).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten());
 
     while let Some((mut heights, terrain_coordinate)) = iter.fetch_next() {
         let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
@@ -233,7 +214,7 @@ fn update_terrain_heights(
         if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
             let _span = info_span!("Apply shape modifiers").entered();
             
-            shape_modifier_query.iter_many(shapes.iter()).for_each(|(modifier, operation, global_transform, _)| {
+            shape_modifier_query.iter_many(shapes.iter()).for_each(|(modifier, operation, global_transform)| {
                 let shape_translation = global_transform.translation().xz();
     
                 match modifier.shape {
@@ -278,7 +259,7 @@ fn update_terrain_heights(
             let _span = info_span!("Apply splines").entered();
 
             for entry in splines.iter() {
-                if let Ok((spline, spline_properties, _)) = spline_query.get(entry.entity) {
+                if let Ok((spline, spline_properties)) = spline_query.get(entry.entity) {
                     for (i, val) in heights.0.iter_mut().enumerate() {
                         let x = i % terrain_settings.edge_length as usize;
                         let z = i / terrain_settings.edge_length as usize;
