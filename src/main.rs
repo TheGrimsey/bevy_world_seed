@@ -4,13 +4,14 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, PostUpdate, Startup}, asset::Assets, color::{palettes::css::RED, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Event, EventReader, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
+    app::{App, PostUpdate, Startup}, asset::{AssetServer, Assets}, color::{palettes::css::RED, Color}, core::Name, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, resource_changed, BuildChildren, Camera3dBundle, Capsule3d, Commands, Component, CubicCardinalSpline, CubicCurve, CubicGenerator, Event, EventReader, IntoSystemConfigs, Local, PerspectiveProjection, Projection, Query, ReflectDefault, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem}, reflect::Reflect, render::{mesh::Mesh, view::VisibilityBundle}, transform::{bundles::TransformBundle, components::{GlobalTransform, Transform}}, DefaultPlugins
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::prelude::Collider;
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
 use material::TerrainTexturingPlugin;
+use material::TextureModifier;
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
@@ -25,6 +26,14 @@ mod terrain;
 mod meshing;
 #[cfg(feature = "rendering")]
 mod material;
+
+/// System sets containing the crate's systems.
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
+pub enum TerrainSets {
+    Modifiers,
+    Heights,
+}
+
 
 // Our Bevy app's entry point
 fn main() {
@@ -54,15 +63,15 @@ fn main() {
             (
                 (
                     (
-                        update_terrain_spline_cache,
-                        update_terrain_spline_aabb
-                    ).chain(),
-                    update_shape_modifier_aabb,
-                ),
-                (
+                        (
+                            update_terrain_spline_cache,
+                            update_terrain_spline_aabb
+                        ).chain(),
+                        update_shape_modifier_aabb,
+                    ),
                     update_tile_modifier_priorities.run_if(resource_changed::<TileToModifierMapping>),
-                    update_terrain_heights
-                ).chain(),
+                ).chain().in_set(TerrainSets::Modifiers),
+                update_terrain_heights.in_set(TerrainSets::Heights)
             ).chain()
         ).after(TransformSystem::TransformPropagate))
         .insert_resource(TerrainNoiseLayers {
@@ -349,6 +358,7 @@ fn spawn_terrain(
     mut commands: Commands,
     mut mesh: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
     terrain_settings: Res<TerrainSettings>,
 ) {
     commands.spawn(DirectionalLightBundle {
@@ -400,6 +410,9 @@ fn spawn_terrain(
             operation: ModifierOperation::Set,
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
+        },
+        TextureModifier {
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg")
         },
         Name::new("Modifier (Circle)")
     ));

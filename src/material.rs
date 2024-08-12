@@ -1,8 +1,8 @@
 use std::num::NonZeroU32;
 
-use bevy::{app::{App, Plugin, PostUpdate}, asset::{Asset, AssetApp, Assets, Handle}, log::info_span, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, Local, Query, ReflectDefault, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
+use bevy::{app::{App, Plugin, PostUpdate}, asset::{Asset, AssetApp, Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Query, ReflectDefault, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
 
-use crate::{minimum_distance, modifiers::{Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping}, terrain::{TerrainCoordinate, TileToTerrain}, Heights, RebuildTile, TerrainSettings};
+use crate::{minimum_distance, modifiers::{Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping}, terrain::{TerrainCoordinate, TileToTerrain}, Heights, RebuildTile, TerrainSets, TerrainSettings};
 
 pub struct TerrainTexturingPlugin;
 impl Plugin for TerrainTexturingPlugin {
@@ -12,7 +12,7 @@ impl Plugin for TerrainTexturingPlugin {
         );
 
         app.insert_resource(TerrainTexturingSettings {
-            texture_resolution_power: 6,
+            texture_resolution_power: 7,
             max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
         });
 
@@ -20,8 +20,8 @@ impl Plugin for TerrainTexturingPlugin {
 
         app.add_systems(PostUpdate, (
             insert_texture_map,
-            update_terrain_texture_maps
-        ));
+            update_terrain_texture_maps.after(TerrainSets::Modifiers)
+        ).chain());
     }
 }
 
@@ -68,6 +68,48 @@ pub(super) struct TerrainMaterial {
     #[texture(8)]
     #[sampler(9)]
     texture_d: Option<Handle<Image>>,
+}
+impl TerrainMaterial {
+    pub fn clear_textures(&mut self) {
+        self.texture_a = None;
+        self.texture_b = None;
+        self.texture_c = None;
+        self.texture_d = None;
+    }
+
+    pub fn get_texture_slot(&mut self, image: &Handle<Image>) -> Option<usize> {
+        /*
+        *   There has to be a better way to do this, right?
+         */
+
+        if self.texture_a.as_ref().is_some_and(|entry| entry == image) {
+            Some(0)
+        } else if self.texture_b.as_ref().is_some_and(|entry| entry == image) {
+            Some(1)
+        } else if self.texture_c.as_ref().is_some_and(|entry| entry == image) {
+            Some(2)
+        } else if self.texture_d.as_ref().is_some_and(|entry| entry == image) {
+            Some(3)
+        } else if self.texture_a.is_none() {
+            self.texture_a = Some(image.clone());
+
+            Some(0)
+        } else if self.texture_b.is_none() {
+            self.texture_b = Some(image.clone());
+
+            Some(1)
+        } else if self.texture_c.is_none() {
+            self.texture_c = Some(image.clone());
+
+            Some(2)
+        } else if self.texture_d.is_none() {
+            self.texture_d = Some(image.clone());
+
+            Some(3)
+        } else {
+            None
+        }
+    }
 }
 
 /// The Material trait is very configurable, but comes with sensible defaults for all methods.
@@ -129,7 +171,7 @@ fn update_terrain_texture_maps(
     tile_to_terrain: Res<TileToTerrain>,
     mut event_reader: EventReader<RebuildTile>,
     mut tile_generate_queue: Local<Vec<IVec2>>,
-    materials: Res<Assets<TerrainMaterial>>,
+    mut materials: ResMut<Assets<TerrainMaterial>>,
     mut images: ResMut<Assets<Image>>
 ) {
     for RebuildTile(tile) in event_reader.read() {
@@ -148,14 +190,15 @@ fn update_terrain_texture_maps(
 
     let tiles_to_generate = tile_generate_queue.len().min(texture_settings.max_tile_updates_per_frame.get() as usize);
 
-
     tiles_query.iter_many(tile_generate_queue.drain(..tiles_to_generate).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten()).for_each(|(material, terrain_coordinate)| {
-        let Some(material) = materials.get(material) else {
+        let Some(material) = materials.get_mut(material) else {
             return;
         };
-        let Some(texture) = images.get_mut(&material.texture_map) else {
+        let Some(texture) = images.get_mut(material.texture_map.id()) else {
             return;
         };
+
+        texture.data.fill(0);
 
         let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
 
@@ -164,6 +207,10 @@ fn update_terrain_texture_maps(
             let _span = info_span!("Apply shape modifiers").entered();
             
             shape_modifier_query.iter_many(shapes.iter()).for_each(|(texture_modifier, modifier, global_transform)| {
+                let Some(texture_channel) = material.get_texture_slot(&texture_modifier.texture) else {
+                    info!("Hit max texture channels.");
+                    return;
+                };
                 let shape_translation = global_transform.translation().xz();
     
                 match modifier.shape {
@@ -177,6 +224,7 @@ fn update_terrain_texture_maps(
                             let strength = 1.0 - ((pixel_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0);
     
                             // Apply texture.
+                            apply_texture(val, texture_channel, strength);
                         }
                     },
                     Shape::Rectangle { x, z } => {
@@ -184,8 +232,8 @@ fn update_terrain_texture_maps(
                         let rect_max = Vec2::new(x, z) / 2.0;
     
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                            let x = i % terrain_settings.edge_length as usize;
-                            let z = i / terrain_settings.edge_length as usize;
+                            let x = i % resolution as usize;
+                            let z = i / resolution as usize;
                         
                             let pixel_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
                             let pixel_local = global_transform.affine().inverse().transform_point3(Vec3::new(pixel_position.x, 0.0, pixel_position.y)).xz();
@@ -197,6 +245,7 @@ fn update_terrain_texture_maps(
                             let strength = 1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0);
     
                             // Apply texture.
+                            apply_texture(val, texture_channel, strength);
                         }
                     },
                 }
@@ -209,9 +258,14 @@ fn update_terrain_texture_maps(
 
             for entry in splines.iter() {
                 if let Ok((texture_modifier, spline, spline_properties)) = spline_query.get(entry.entity) {
+                    let Some(texture_channel) = material.get_texture_slot(&texture_modifier.texture) else {
+                        info!("Hit max texture channels.");
+                        continue;
+                    };
+
                     for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                        let x = i % terrain_settings.edge_length as usize;
-                        let z = i / terrain_settings.edge_length as usize;
+                        let x = i % resolution as usize;
+                        let z = i / resolution as usize;
         
                         let local_vertex_position = Vec2::new(x as f32 * scale, z as f32 * scale);
                         let overlaps = (local_vertex_position / tile_size * 7.0).as_ivec2();
@@ -237,9 +291,31 @@ fn update_terrain_texture_maps(
                         let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff).clamp(0.0, 1.0);
                         
                         // Apply texture.
+                        apply_texture(val, texture_channel, strength);
                     }
                 }
             }
         }
     });
+}
+
+fn apply_texture(
+    channels: &mut [u8],
+    target_channel: usize,
+    target_strength: f32
+) {
+    // Problem: Must be fast. Must be understandable.
+
+    // Idea: Try to apply the full strength. Removing from the lowest if there is not enough.
+    let strength = (target_strength * 255.0) as u8;
+    if strength == 255 {
+        channels[0] = 0;
+        channels[1] = 0;
+        channels[2] = 0;
+        channels[3] = 0;
+
+        channels[target_channel] = 255;
+    } else {
+
+    }
 }
