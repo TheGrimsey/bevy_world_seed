@@ -23,7 +23,7 @@ fn fragment(
     var texture_weights = textureSample(texture_map, texture_map_sampler, mesh.uv);
 
     var diffuse_a = textureSample(texture_a, texture_a_sampler, mesh.uv) * texture_weights.x;
-    var diffuse_b = textureSample(texture_d, texture_b_sampler, mesh.uv) * texture_weights.y;
+    var diffuse_b = textureSample(texture_b, texture_b_sampler, mesh.uv) * texture_weights.y;
     var diffuse_c = textureSample(texture_c, texture_c_sampler, mesh.uv) * texture_weights.z;
     var diffuse_d = textureSample(texture_d, texture_d_sampler, mesh.uv) * texture_weights.w;
 

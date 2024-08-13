@@ -431,7 +431,10 @@ fn spawn_terrain(
             },
             operation: ModifierOperation::Set,
             priority: ModifierPriority(2),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(48.0, 5.0, 10.0))),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
+        },
+        TextureModifier {
+            texture: asset_server.load("textures/brown_mud_leaves.jpg")
         },
         Name::new("Modifier (Rectangle)")
     ));

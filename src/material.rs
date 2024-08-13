@@ -199,6 +199,7 @@ fn update_terrain_texture_maps(
         };
 
         texture.data.fill(0);
+        material.clear_textures();
 
         let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
 
@@ -306,16 +307,22 @@ fn apply_texture(
 ) {
     // Problem: Must be fast. Must be understandable.
 
-    // Idea: Try to apply the full strength. Removing from the lowest if there is not enough.
+    // Idea: Try to apply the full strength. Removing from the highest if there is not enough.
     let strength = (target_strength * 255.0) as u8;
-    if strength == 255 {
-        channels[0] = 0;
-        channels[1] = 0;
-        channels[2] = 0;
-        channels[3] = 0;
 
-        channels[target_channel] = 255;
-    } else {
+    // Don't decrease the strength of our channel.
+    if channels[target_channel] < strength {
+        if strength == 255 {
+            channels.fill(0);
+            channels[target_channel] = 255;
+        } else {
+            let total: u8 = channels.iter().sum();
 
+            let remainder = 255 - total as i16;
+
+            if remainder >= 0 {
+                channels[target_channel] = strength;
+            }
+        }
     }
 }
