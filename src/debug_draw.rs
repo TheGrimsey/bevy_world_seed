@@ -53,7 +53,10 @@ fn debug_draw_terrain_modifiers(
             },
             Shape::Rectangle { x, z } => {
                 let (_, rot, translation) = global_transform.to_scale_rotation_translation();
-                gizmos.rect(translation, rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()), Vec2::new(x, z), Color::from(LIGHT_CYAN));
+                gizmos.rect(translation, rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()), Vec2::new(x, z) * 2.0, Color::from(LIGHT_CYAN));
+                
+                let (_, rot, translation) = global_transform.to_scale_rotation_translation();
+                gizmos.rect(translation, rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()), Vec2::new(x, z) * 2.0 + shape.falloff, Color::from(DARK_CYAN));
             },
         }
     });

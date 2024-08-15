@@ -16,6 +16,7 @@ pub enum Shape {
     Circle {
         radius: f32,
     },
+    // Half-size.
     Rectangle {
         x: f32,
         z: f32, 
@@ -230,20 +231,23 @@ pub(super) fn update_shape_modifier_aabb(
         let(min, max) = match shape.shape {
             Shape::Circle { radius } => {
                 (
-                    Vec2::splat(-radius),
-                    Vec2::splat(radius)
+                    global_transform.translation().xz() + Vec2::splat(-radius),
+                    global_transform.translation().xz() + Vec2::splat(radius)
                 )
             },
             Shape::Rectangle { x, z } => {
+                let min = global_transform.transform_point(Vec3::new(-x, 0.0, -z));
+                let max = global_transform.transform_point(Vec3::new(x, 0.0, z));
+
                 (
-                    Vec2::new(-x, -z) / 2.0,
-                    Vec2::new(x, z) / 2.0
+                    min.min(max).xz(),
+                    max.max(min).xz()
                 )
             },
         };
 
-        let tile_min = (global_transform.translation().xz() + min - shape.falloff).as_ivec2() >> terrain_settings.tile_size_power;
-        let tile_max = (global_transform.translation().xz() + max + shape.falloff).as_ivec2() >> terrain_settings.tile_size_power;
+        let tile_min = (min - shape.falloff).as_ivec2() >> terrain_settings.tile_size_power;
+        let tile_max = (max + shape.falloff).as_ivec2() >> terrain_settings.tile_size_power;
 
         for x in tile_min.x..=tile_max.x {
             for y in tile_min.y..=tile_max.y {

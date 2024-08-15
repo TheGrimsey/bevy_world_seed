@@ -97,6 +97,7 @@ fn main() {
         .register_type::<TerrainCoordinate>()
         .register_type::<ShapeModifier>()
         .register_type::<ModifierOperation>()
+        .register_type::<ModifierPriority>()
 
         .add_event::<RebuildTile>()
 
@@ -200,22 +201,22 @@ fn update_terrain_heights(
     while let Some((mut heights, terrain_coordinate)) = iter.fetch_next() {
         let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
 
+        // Clear heights.
+        heights.0.fill(0.0);
+
         // First, set by noise.
         {
             let _span = info_span!("Apply noise").entered();
             for (i, val) in heights.0.iter_mut().enumerate() {
-                let mut new_val = 0.0;
-    
                 let x = i % terrain_settings.edge_length as usize;
                 let z = i / terrain_settings.edge_length as usize;
                 
                 let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
     
                 for noise_layer in terrain_noise_layers.layers.iter() {
-                    new_val += noise_layer.get(vertex_position.x, vertex_position.y, noise_cache.get(noise_layer.seed));
+                    *val += noise_layer.get(vertex_position.x, vertex_position.y, noise_cache.get(noise_layer.seed));
                 }
-    
-                *val = new_val;
+
             }
         }
 
@@ -240,8 +241,8 @@ fn update_terrain_heights(
                         }
                     },
                     Shape::Rectangle { x, z } => {
-                        let rect_min = Vec2::new(-x, -z) / 2.0;
-                        let rect_max = Vec2::new(x, z) / 2.0;
+                        let rect_min = Vec2::new(-x, -z);
+                        let rect_max = Vec2::new(x, z);
     
                         for (i, val) in heights.0.iter_mut().enumerate() {
                             let x = i % terrain_settings.edge_length as usize;
@@ -393,6 +394,10 @@ fn spawn_terrain(
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::default()
         },
+        TextureModifier {
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            max_texture_strength: 0.95
+        },
         Name::new("Spline")
     ));
 
@@ -412,7 +417,8 @@ fn spawn_terrain(
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
         },
         TextureModifier {
-            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg")
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            max_texture_strength: 0.95
         },
         Name::new("Modifier (Circle)")
     ));
@@ -422,8 +428,8 @@ fn spawn_terrain(
             aabb: TerrainTileAabb::default(),
             modifier: ShapeModifier {
                 shape: Shape::Rectangle {
-                    x: 5.0,
-                    z: 10.0
+                    x: 2.5,
+                    z: 5.0
                 },
                 falloff: 12.0,
                 allow_raising: true,
@@ -434,7 +440,8 @@ fn spawn_terrain(
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
         },
         TextureModifier {
-            texture: asset_server.load("textures/brown_mud_leaves.jpg")
+            texture: asset_server.load("textures/brown_mud_leaves.jpg"),
+            max_texture_strength: 0.95
         },
         Name::new("Modifier (Rectangle)")
     ));

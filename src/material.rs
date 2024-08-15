@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use bevy::{app::{App, Plugin, PostUpdate}, asset::{Asset, AssetApp, Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Query, ReflectDefault, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
+use bevy::{app::{App, Plugin, PostUpdate}, asset::{Asset, AssetApp, Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectDefault, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
 
 use crate::{minimum_distance, modifiers::{Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping}, terrain::{TerrainCoordinate, TileToTerrain}, Heights, RebuildTile, TerrainSets, TerrainSettings};
 
@@ -12,11 +12,13 @@ impl Plugin for TerrainTexturingPlugin {
         );
 
         app.insert_resource(TerrainTexturingSettings {
-            texture_resolution_power: 7,
+            texture_resolution_power: 6,
             max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
         });
 
-        app.register_asset_reflect::<TerrainMaterial>();
+        app
+            .register_asset_reflect::<TerrainMaterial>()
+            .register_type::<TextureModifier>();
 
         app.add_systems(PostUpdate, (
             insert_texture_map,
@@ -44,9 +46,11 @@ impl TerrainTexturingSettings {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct TextureModifier {
     pub texture: Handle<Image>,
+    pub max_texture_strength: f32
 }
 
 // This struct defines the data that will be passed to your shader
@@ -222,15 +226,15 @@ fn update_terrain_texture_maps(
                         
                             let pixel_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
     
-                            let strength = 1.0 - ((pixel_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0);
+                            let strength = (1.0 - ((pixel_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0)).min(texture_modifier.max_texture_strength);
     
                             // Apply texture.
                             apply_texture(val, texture_channel, strength);
                         }
                     },
                     Shape::Rectangle { x, z } => {
-                        let rect_min = Vec2::new(-x, -z) / 2.0;
-                        let rect_max = Vec2::new(x, z) / 2.0;
+                        let rect_min = Vec2::new(-x, -z);
+                        let rect_max = Vec2::new(x, z);
     
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let x = i % resolution as usize;
@@ -243,7 +247,7 @@ fn update_terrain_texture_maps(
                             let d_y = (rect_min.y - pixel_local.y).max(pixel_local.y - rect_max.y).max(0.0);
                             let d_d = (d_x*d_x + d_y*d_y).sqrt();
     
-                            let strength = 1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0);
+                            let strength = (1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0)).min(texture_modifier.max_texture_strength);
     
                             // Apply texture.
                             apply_texture(val, texture_channel, strength);
@@ -289,7 +293,7 @@ fn update_terrain_texture_maps(
                             }
                         }
         
-                        let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff).clamp(0.0, 1.0);
+                        let strength = (1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff).clamp(0.0, 1.0)).min(texture_modifier.max_texture_strength);
                         
                         // Apply texture.
                         apply_texture(val, texture_channel, strength);
@@ -318,10 +322,28 @@ fn apply_texture(
         } else {
             let total: u8 = channels.iter().sum();
 
-            let remainder = 255 - total as i16;
+            let remainder = 255 - total as i16 + channels[target_channel] as i16;
 
             if remainder >= 0 {
                 channels[target_channel] = strength;
+            } else {
+                let mut to_remove = remainder.unsigned_abs() as u8;
+                
+                while to_remove > 0 {
+                    let mut min_channel = 0;
+                    let mut min = u8::MAX;
+                    for (i, val) in channels.iter().enumerate() {
+                        if i != target_channel && *val < min && *val > 0 {
+                            min_channel = i;
+                            min = *val;
+                        }
+                    }
+
+                    let subtract = channels[min_channel].min(to_remove); 
+                    channels[min_channel] -= subtract;
+
+                    to_remove -= subtract;
+                }
             }
         }
     }
