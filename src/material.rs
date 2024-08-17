@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use bevy::{app::{App, Plugin, PostUpdate}, asset::{Asset, AssetApp, Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectDefault, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
+use bevy::{app::{App, Plugin, PostUpdate, Startup}, asset::{Asset, AssetApp, AssetServer, Assets, Handle}, log::{info, info_span}, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, pbr::{Material, MaterialPlugin}, prelude::{default, AlphaMode, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, With, Without}, reflect::Reflect, render::{render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo}};
 
 use crate::{minimum_distance, modifiers::{Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping}, terrain::{TerrainCoordinate, TileToTerrain}, Heights, RebuildTile, TerrainSets, TerrainSettings};
 
@@ -12,19 +12,35 @@ impl Plugin for TerrainTexturingPlugin {
         );
 
         app.insert_resource(TerrainTexturingSettings {
-            texture_resolution_power: 6,
+            texture_resolution_power: 7,
             max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
+        });
+        app.insert_resource(GlobalTexturingRules {
+            rules: vec![],
         });
 
         app
             .register_asset_reflect::<TerrainMaterial>()
-            .register_type::<TextureModifier>();
+            .register_type::<TextureModifier>()
+            .register_type::<GlobalTexturingRules>();
 
         app.add_systems(PostUpdate, (
             insert_texture_map,
             update_terrain_texture_maps.after(TerrainSets::Modifiers)
         ).chain());
+
+        app.add_systems(Startup, insert_rules);
     }
+}
+
+fn insert_rules(
+    mut texturing_rules: ResMut<GlobalTexturingRules>,
+    asset_server: Res<AssetServer>
+) {
+    texturing_rules.rules.push(TexturingRule {
+        evaluator: TexturingRuleEvaluator::Above { height: 1.0, falloff: 2.0 },
+        texture: asset_server.load("textures/brown_mud_leaves.jpg")
+    });
 }
 
 #[derive(Resource)]
@@ -51,6 +67,35 @@ impl TerrainTexturingSettings {
 pub struct TextureModifier {
     pub texture: Handle<Image>,
     pub max_texture_strength: f32
+}
+
+#[derive(Reflect)]
+enum TexturingRuleEvaluator {
+    Above {
+        height: f32,
+        falloff: f32
+    },
+    Below {
+        height: f32,
+        falloff: f32
+    },
+    Between {
+        max_height: f32,
+        min_height: f32,
+        falloff: f32
+    }
+}
+
+#[derive(Reflect)]
+struct TexturingRule {
+    evaluator: TexturingRuleEvaluator,
+    texture: Handle<Image>
+}
+
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
+struct GlobalTexturingRules {
+    rules: Vec<TexturingRule>
 }
 
 // This struct defines the data that will be passed to your shader
@@ -116,8 +161,6 @@ impl TerrainMaterial {
     }
 }
 
-/// The Material trait is very configurable, but comes with sensible defaults for all methods.
-/// You only need to implement functions for features that need non-default behavior. See the Material api docs for details!
 impl Material for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/terrain.wgsl".into()
@@ -168,7 +211,7 @@ fn insert_texture_map(
 fn update_terrain_texture_maps(
     shape_modifier_query: Query<(&TextureModifier, &ShapeModifier, &GlobalTransform)>,
     spline_query: Query<(&TextureModifier, &TerrainSplineCached, &TerrainSplineProperties)>,
-    tiles_query: Query<(&Handle<TerrainMaterial>, &TerrainCoordinate)>,
+    tiles_query: Query<(&Heights, &Handle<TerrainMaterial>, &TerrainCoordinate)>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
@@ -176,7 +219,8 @@ fn update_terrain_texture_maps(
     mut event_reader: EventReader<RebuildTile>,
     mut tile_generate_queue: Local<Vec<IVec2>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
-    mut images: ResMut<Assets<Image>>
+    mut images: ResMut<Assets<Image>>,
+    texturing_rules: Res<GlobalTexturingRules>
 ) {
     for RebuildTile(tile) in event_reader.read() {
         if !tile_generate_queue.contains(tile) {
@@ -191,10 +235,11 @@ fn update_terrain_texture_maps(
     let tile_size = terrain_settings.tile_size();
     let resolution = texture_settings.resolution();
     let scale = tile_size / resolution as f32;
+    let vertex_scale = (terrain_settings.edge_length - 1) as f32 / resolution as f32;
 
     let tiles_to_generate = tile_generate_queue.len().min(texture_settings.max_tile_updates_per_frame.get() as usize);
 
-    tiles_query.iter_many(tile_generate_queue.drain(..tiles_to_generate).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten()).for_each(|(material, terrain_coordinate)| {
+    tiles_query.iter_many(tile_generate_queue.drain(..tiles_to_generate).filter_map(|tile| tile_to_terrain.0.get(&tile)).flatten()).for_each(|(heights, material, terrain_coordinate)| {
         let Some(material) = materials.get_mut(material) else {
             return;
         };
@@ -206,6 +251,65 @@ fn update_terrain_texture_maps(
         material.clear_textures();
 
         let terrain_translation = (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
+
+        {
+            let _span = info_span!("Apply global texturing rules.").entered();
+
+            for rule in texturing_rules.rules.iter() {
+                let Some(texture_channel) = material.get_texture_slot(&rule.texture) else {
+                    info!("Hit max texture channels.");
+                    return;
+                };
+    
+                for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
+                    let x = i % resolution as usize;
+                    let z = i / resolution as usize;
+    
+                    let x_f = x as f32 * vertex_scale;
+                    let z_f = z as f32 * vertex_scale;
+    
+                    let vertex_x = x_f as usize;
+                    let vertex_z = z_f as usize;
+                
+                    let vertex_a = (vertex_z * terrain_settings.edge_length as usize) + vertex_x;
+                    let vertex_b = vertex_a + 1;
+                    let vertex_c = vertex_a + terrain_settings.edge_length as usize;
+                    let vertex_d = vertex_a + terrain_settings.edge_length as usize + 1;
+    
+                    if vertex_a >= heights.0.len() || vertex_b >= heights.0.len() || vertex_c >= heights.0.len() || vertex_d >= heights.0.len() {
+                        info!("HI?");
+                    }
+
+                    let height_at_position = get_height_at_position(
+                        heights.0[vertex_a],
+                        heights.0[vertex_b],
+                        heights.0[vertex_c],
+                        heights.0[vertex_d],
+                        x_f - x_f.round(),
+                        z_f - z_f.round()
+                    );
+    
+                    let strength = match rule.evaluator {
+                        TexturingRuleEvaluator::Above { height, falloff } => {
+                            if height_at_position >= height {
+                                1.0
+                            } else {
+                                1.0 - ((height_at_position - height).abs() / falloff).clamp(0.0, 1.0)
+                            }
+                        },
+                        TexturingRuleEvaluator::Below { height, falloff } => {
+                            1.0
+                        },
+                        TexturingRuleEvaluator::Between { max_height, min_height, falloff } => {
+                            1.0
+                        },
+                    };
+    
+                    // Apply texture.
+                    apply_texture(val, texture_channel, strength);
+                }
+            }
+        }
 
         // Secondly, set by shape-modifiers.
         if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
@@ -347,4 +451,60 @@ fn apply_texture(
             }
         }
     }
+}
+
+/*
+*   A -- B
+*   I    I
+*   I    I
+*   C -- D
+*/
+
+fn get_height_at_position(
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    x: f32,
+    y: f32
+) -> f32 {
+    let a = Vec3::new(0.0,a, 0.0);
+    let b = Vec3::new(1.0, b, 0.0);
+    let c = Vec3::new(0.0, c, 1.0);
+    let d = Vec3::new(1.0, d, 1.0);
+
+    // This is gonna break when there are two triangles.
+
+    // Wait... we just... if both x&y are > 0.5... then it's on the second triangle.
+
+    let height = if x <= 0.5 && y <= 0.5 {
+        closest_height_in_triangle(a, b, c, Vec3::new(x, 0.0, y))
+    } else {
+        closest_height_in_triangle(b, c, d, Vec3::new(x, 0.0, y))
+    };
+    
+    height
+}
+
+fn closest_height_in_triangle(a: Vec3, b: Vec3, c: Vec3, position: Vec3) -> f32 {
+    let v0 = c - a;
+    let v1 = b - a;
+    let v2 = position - a;
+
+    let mut denom = v0.x * v1.z - v0.z * v1.x;
+    const EPS: f32 = 0.000001;
+    /*if denom.abs() < EPS {
+        return None;
+    }*/
+
+    let mut u = v1.z * v2.x - v1.x * v2.z;
+    let mut v = v0.x * v2.z - v0.z * v2.x;
+
+    if denom < 0.0 {
+        denom = -denom;
+        u = -u;
+        v = -v;
+    }
+
+    a.y + (v0.y * u + v1.y * v) / denom
 }

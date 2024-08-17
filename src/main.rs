@@ -104,8 +104,12 @@ fn main() {
         .run();
 }
 
+/// Cache of Simplex noise instances & which seeds they map to.
 #[derive(Default)]
 struct NoiseCache {
+    /// Seeds of the simplex noises.
+    /// 
+    /// These are separated from the noises for cache coherency. Simplex is a big struct.
     seeds: Vec<u32>,
     noises: Vec<Simplex>
 }
@@ -163,7 +167,6 @@ impl TerrainSettings {
 
 #[derive(Event)]
 pub struct RebuildTile(IVec2);
-
 
 #[derive(Component)]
 struct Heights(Box<[f32]>);

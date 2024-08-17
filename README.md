@@ -8,7 +8,9 @@ This uses a spline to flatten terrain (as one would with a road). The terrain he
 - [ ] Textures
 
 *Typical terrain texturing where we have a Vec4 where each channel represents a texture's strength.*
-    - [ ] From modifiers & heights.
+
+    - [X] From modifiers
+    - [ ] & heights.
 
     *Write to it using modifiers, i.e a spline modifier can apply a road texture. Probably want to be able to do some falloff & noise at the edges.*
 
