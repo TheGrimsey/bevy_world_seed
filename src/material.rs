@@ -482,7 +482,7 @@ fn update_terrain_texture_maps(
         });
 }
 
-fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength: f32) {
+pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength: f32) {
     // Problem: Must be fast. Must be understandable.
 
     // Idea: Try to apply the full strength. Removing from the highest if there is not enough.
@@ -531,34 +531,23 @@ fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength: f3
 */
 
 // TODO: Make into util function.
-fn get_height_at_position(a: f32, b: f32, c: f32, d: f32, x: f32, y: f32) -> f32 {
-    let a = Vec3::new(0.0, a, 0.0);
-    let b = Vec3::new(1.0, b, 0.0);
-    let c = Vec3::new(0.0, c, 1.0);
-    let d = Vec3::new(1.0, d, 1.0);
-
-    if x <= 0.5 && y <= 0.5 {
-        closest_height_in_triangle(a, b, c, Vec3::new(x, 0.0, y))
+pub fn get_height_at_position(a: f32, b: f32, c: f32, d: f32, x: f32, y: f32) -> f32 {
+    // Determine which triangle the point (x, y) lies in
+    if x + y <= 1.0 {
+        // Point is in triangle ABC
+        closest_height_in_triangle(a, b, c, x, y)
     } else {
-        closest_height_in_triangle(b, c, d, Vec3::new(x, 0.0, y))
+        // Point is in triangle BCD
+        closest_height_in_triangle(b, c, d, x, y)
     }
 }
 
-fn closest_height_in_triangle(a: Vec3, b: Vec3, c: Vec3, position: Vec3) -> f32 {
-    let v0 = c - a;
-    let v1 = b - a;
-    let v2 = position - a;
+fn closest_height_in_triangle(a: f32, b: f32, c: f32, x: f32, y: f32) -> f32 {
+    // Calculate barycentric coordinates for the point (x, y) within the triangle
+    let u = 1.0 - x - y;
+    let v = x;
+    let w = y;
 
-    let mut denom = v0.x * v1.z - v0.z * v1.x;
-
-    let mut u = v1.z * v2.x - v1.x * v2.z;
-    let mut v = v0.x * v2.z - v0.z * v2.x;
-
-    if denom < 0.0 {
-        denom = -denom;
-        u = -u;
-        v = -v;
-    }
-
-    a.y + (v0.y * u + v1.y * v) / denom
+    // Return the interpolated height based on barycentric coordinates
+    a * u + b * v + c * w
 }
