@@ -1,5 +1,5 @@
 use bevy::math::Vec2;
-use bevy_terrain_test::{material::{apply_texture, get_height_at_position}, minimum_distance};
+use bevy_terrain_test::{material::{apply_texture, get_height_at_position, TexturingRuleEvaluator}, minimum_distance};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -13,6 +13,10 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("Apply texture", |b| {
         b.iter(black_box(|| apply_texture(&mut [0, 230, 20, 5], 2, 1.0)))
+    });
+    
+    c.bench_function("Evalutate rule (Above)", |b| {
+        b.iter(black_box(|| TexturingRuleEvaluator::Above { height: 10.0, falloff: 1.0 }.eval(9.5, 0.0)))
     });
 }
 

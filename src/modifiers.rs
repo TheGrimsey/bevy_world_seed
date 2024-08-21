@@ -1,5 +1,4 @@
 use bevy::{
-    log::info,
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
     prelude::{
         Bundle, Changed, Component, CubicCurve, Entity, EventReader, EventWriter, GlobalTransform,
@@ -357,7 +356,6 @@ pub(super) fn update_shape_modifier_aabb(
                         }
 
                         rebuild_tiles_event.send(RebuildTile(tile));
-                        info!("Overlap Bits ({tile}): {overlap_bits:64b}")
                     }
                 }
             }

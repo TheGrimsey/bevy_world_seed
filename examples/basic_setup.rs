@@ -26,7 +26,7 @@ fn main() {
             max_spline_simplification_distance: 3.0
         },
         texturing_settings: TerrainTexturingSettings {
-            texture_resolution_power: 7,
+            texture_resolution_power: 6,
             max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
         },
         debug_draw: true

@@ -7,39 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'bevy_terrain_test'",
+            "name": "Cargo launch",
             "cargo": {
                 "args": [
-                    "build",
-                    "--bin=bevy_terrain_test",
-                    "--package=bevy_terrain_test"
-                ],
-                "filter": {
-                    "name": "bevy_terrain_test",
-                    "kind": "bin"
-                }
+                    "run",
+                    "--example",
+                    "basic_setup"
+                ]
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'bevy_terrain_test'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=bevy_terrain_test",
-                    "--package=bevy_terrain_test"
-                ],
-                "filter": {
-                    "name": "bevy_terrain_test",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "args": []
         }
     ]
 }
