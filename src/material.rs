@@ -18,12 +18,9 @@ use bevy::{
 };
 
 use crate::{
-    minimum_distance,
-    modifiers::{
-        Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping,
-    },
-    terrain::{TerrainCoordinate, TileToTerrain},
-    Heights, RebuildTile, TerrainSets, TerrainSettings,
+    meshing::TerrainMeshRebuilt, minimum_distance, modifiers::{
+        Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
+    }, terrain::{TerrainCoordinate, TileToTerrain}, Heights, TerrainSets, TerrainSettings
 };
 
 pub struct TerrainTexturingPlugin(pub TerrainTexturingSettings);
@@ -280,21 +277,21 @@ fn update_terrain_texture_maps(
     spline_query: Query<(
         &TextureModifier,
         &TerrainSplineCached,
-        &TerrainSplineProperties,
+        &TerrainSpline,
     )>,
     tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &TerrainCoordinate)>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
-    mut event_reader: EventReader<RebuildTile>,
+    mut event_reader: EventReader<TerrainMeshRebuilt>,
     mut tile_generate_queue: Local<Vec<IVec2>>,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
     texturing_rules: Res<GlobalTexturingRules>,
 ) {
-    for RebuildTile(tile) in event_reader.read() {
+    for TerrainMeshRebuilt(tile) in event_reader.read() {
         if !tile_generate_queue.contains(tile) {
             tile_generate_queue.push(*tile);
         }
@@ -307,7 +304,7 @@ fn update_terrain_texture_maps(
     let tile_size = terrain_settings.tile_size();
     let resolution = texture_settings.resolution();
     let scale = tile_size / resolution as f32;
-    let vertex_scale = (terrain_settings.edge_length - 1) as f32 / resolution as f32;
+    let vertex_scale = (terrain_settings.edge_points - 1) as f32 / resolution as f32;
     let inv_tile_size_scale =  scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue
@@ -336,7 +333,7 @@ fn update_terrain_texture_maps(
             material.extension.clear_textures();
 
             let terrain_translation =
-                (terrain_coordinate.0 << terrain_settings.tile_size_power).as_vec2();
+                (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
 
             {
                 let _span = info_span!("Apply global texturing rules.").entered();
@@ -358,10 +355,10 @@ fn update_terrain_texture_maps(
                         let vertex_z = z_f as usize;
 
                         let vertex_a =
-                            (vertex_z * terrain_settings.edge_length as usize) + vertex_x;
+                            (vertex_z * terrain_settings.edge_points as usize) + vertex_x;
                         let vertex_b = vertex_a + 1;
-                        let vertex_c = vertex_a + terrain_settings.edge_length as usize;
-                        let vertex_d = vertex_a + terrain_settings.edge_length as usize + 1;
+                        let vertex_c = vertex_a + terrain_settings.edge_points as usize;
+                        let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
 
                         let height_at_position = unsafe { get_height_at_position(
                             *heights.0.get_unchecked(vertex_a),
@@ -549,10 +546,6 @@ pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength
         } else {
             channels[target_channel] = 0; 
             let total: i16 = channels[0] as i16 + channels[1] as i16 + channels[2] as i16 + channels[3] as i16;
-            
-            if total > 255 {
-                info!("{channels:?}");
-            }
 
             let overflow = total + strength as i16 - 255;
 

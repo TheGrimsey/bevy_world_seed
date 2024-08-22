@@ -1,18 +1,13 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate},
-    asset::{Assets, Handle},
-    math::{IVec2, Vec3},
-    prelude::{Changed, Commands, Entity, IntoSystemConfigs, Mesh, Query, Res, ResMut},
-    render::{
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::info, math::{IVec2, Vec3}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
         mesh::{Indices, PrimitiveTopology},
         render_asset::RenderAssetUsages,
-    },
+    }
 };
 use bevy_rapier3d::prelude::Collider;
 
 use crate::{
-    terrain::{TerrainCoordinate, TileToTerrain},
-    update_terrain_heights, Heights, TerrainSettings,
+    terrain::{TerrainCoordinate, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
 };
 
 pub struct TerrainMeshingPlugin;
@@ -22,8 +17,14 @@ impl Plugin for TerrainMeshingPlugin {
             PostUpdate,
             update_mesh_from_heights.after(update_terrain_heights),
         );
+        
+        app.add_event::<TerrainMeshRebuilt>();
     }
 }
+
+
+#[derive(Event)]
+pub struct TerrainMeshRebuilt(pub IVec2);
 
 /*
 *   0: -X,
@@ -39,6 +40,7 @@ fn update_mesh_from_heights(
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
+    mut repaint_texture_events: EventWriter<TerrainMeshRebuilt>
 ) {
     query
         .iter()
@@ -72,7 +74,7 @@ fn update_mesh_from_heights(
 
             let mesh = create_terrain_mesh(
                 terrain_settings.tile_size(),
-                terrain_settings.edge_length.try_into().unwrap(),
+                terrain_settings.edge_points,
                 &heights.0,
                 &neighbors,
             );
@@ -85,10 +87,12 @@ fn update_mesh_from_heights(
                 commands.entity(entity).insert((new_handle,));
             }
 
+            repaint_texture_events.send(TerrainMeshRebuilt(terrain_coordinate.0));
+
             commands.entity(entity).insert(Collider::heightfield(
                 heights.0.to_vec(),
-                terrain_settings.edge_length as usize,
-                terrain_settings.edge_length as usize,
+                terrain_settings.edge_points as usize,
+                terrain_settings.edge_points as usize,
                 Vec3::new(
                     terrain_settings.tile_size(),
                     1.0,
@@ -133,6 +137,8 @@ fn create_terrain_mesh(
             uvs.push([tx, tz]);
         }
     }
+
+    info!("Last UV: {:?} {:?}", uvs.first(), uvs.last());
 
     // Create triangles.
     for z in 0..vertex_count - 1 {

@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::{
     modifiers::{
-        Shape, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TerrainTileAabb,
+        Shape, ShapeModifier, TerrainSplineCached, TerrainSpline, TerrainTileAabb,
     },
     TerrainSettings,
 };
@@ -36,7 +36,7 @@ fn debug_draw_terrain_modifiers(
     mut gizmos: Gizmos,
     spline_query: Query<(
         &TerrainSplineCached,
-        &TerrainSplineProperties,
+        &TerrainSpline,
         &TerrainTileAabb,
     )>,
     shape_query: Query<(&ShapeModifier, &GlobalTransform)>,
@@ -65,10 +65,10 @@ fn debug_draw_terrain_modifiers(
                     for y in terrain_abb.min.y..=terrain_abb.max.y {
                         gizmos.rect(
                             Vec3::new(
-                                (x << terrain_settings.tile_size_power) as f32
+                                (x << terrain_settings.tile_size_power.get()) as f32
                                     + terrain_settings.tile_size() / 2.0,
                                 0.0,
-                                (y << terrain_settings.tile_size_power) as f32
+                                (y << terrain_settings.tile_size_power.get()) as f32
                                     + terrain_settings.tile_size() / 2.0,
                             ),
                             Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),

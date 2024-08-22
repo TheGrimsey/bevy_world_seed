@@ -1,8 +1,8 @@
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{TerrainTexturingSettings, TextureModifier}, modifiers::{ModifierOperation, ModifierPriority, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{TerrainTexturingSettings, TextureModifier}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSplineCurve, TerrainSplineBundle, TerrainSplineCached, TerrainSpline, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 
 fn main() {
@@ -20,9 +20,9 @@ fn main() {
             ],
         }),
         terrain_settings: TerrainSettings {
-            tile_size_power: 5,
-            edge_length: 65,
-            max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
+            tile_size_power: NonZeroU8::new(5).unwrap(),
+            edge_points: 65,
+            max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
             max_spline_simplification_distance: 3.0
         },
         texturing_settings: TerrainTexturingSettings {
@@ -57,16 +57,16 @@ fn spawn_terrain(
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(8.0, 0.0, 8.0),
         Vec3::new(16.0, 0.0, 16.0),
-        Vec3::new(32.0, 1.0, 32.0),
+        Vec3::new(20.0, 1.0, 20.0),
     ]).to_curve();
 
     commands.spawn((
         TerrainSplineBundle {
             tile_aabb: TerrainTileAabb::default(),
-            spline: TerrainSpline {
+            spline: TerrainSplineCurve {
                 curve: spline
             },
-            properties: TerrainSplineProperties {
+            properties: TerrainSpline {
                 width: 8.0,
                 falloff: 4.0
             },
@@ -89,6 +89,8 @@ fn spawn_terrain(
                     radius: 4.0
                 },
                 falloff: 4.0,
+            },
+            properties: ModifierProperties {
                 allow_lowering: true,
                 allow_raising: true
             },
@@ -112,8 +114,10 @@ fn spawn_terrain(
                     z: 5.0
                 },
                 falloff: 12.0,
-                allow_raising: true,
-                allow_lowering: true
+            },
+            properties: ModifierProperties {
+                allow_lowering: true,
+                allow_raising: true
             },
             operation: ModifierOperation::Set,
             priority: ModifierPriority(2),
@@ -126,7 +130,7 @@ fn spawn_terrain(
         Name::new("Modifier (Rectangle)")
     ));
 
-    let size = terrain_settings.edge_length as usize * terrain_settings.edge_length as usize;
+    let size = terrain_settings.edge_points as usize * terrain_settings.edge_points as usize;
     let flat_heights = vec![0.0; size].into_boxed_slice();
 
     commands.spawn((

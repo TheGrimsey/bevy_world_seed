@@ -15,7 +15,7 @@ This uses a spline to flatten terrain (as one would with a road). The terrain he
 
     *Write to it using modifiers, i.e a spline modifier can apply a road texture. Probably want to be able to do some falloff & noise at the edges.*
 
-- [] Take into account the next tile for normals at the edge. (90%, missing corners)
+- [X] Take into account the next tile for normals at the edge. (We currently ignore corners but it seems to eb fine anyway?)
 
 *We get weird edges right now because the smooth normals only account for what exists on the tile.*
 

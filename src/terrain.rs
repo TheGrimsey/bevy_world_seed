@@ -34,7 +34,7 @@ pub(super) fn update_tiling(
         .iter_mut()
         .for_each(|(entity, mut terrain_coordinate, global_transform)| {
             let coordinate =
-                global_transform.translation().as_ivec3().xz() >> terrain_setttings.tile_size_power;
+                global_transform.translation().xz().as_ivec2() >> terrain_setttings.tile_size_power.get();
 
             if terrain_coordinate.is_added() || terrain_coordinate.0 != coordinate {
                 if let Some(entries) = tile_to_terrain.0.get_mut(&terrain_coordinate.0) {

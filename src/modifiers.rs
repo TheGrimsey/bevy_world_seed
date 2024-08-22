@@ -15,6 +15,7 @@ pub struct ShapeModifierBundle {
     pub aabb: TerrainTileAabb,
     pub modifier: ShapeModifier,
     pub operation: ModifierOperation,
+    pub properties: ModifierProperties,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
 }
@@ -31,6 +32,12 @@ pub enum Shape {
 pub struct ShapeModifier {
     pub shape: Shape,
     pub falloff: f32,
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct ModifierProperties {
+    // TODO: These should be bitflags. They are only bools for testing in editor.
     pub allow_raising: bool,
     pub allow_lowering: bool,
 }
@@ -56,8 +63,8 @@ pub enum ModifierOperation {
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
     pub tile_aabb: TerrainTileAabb,
-    pub spline: TerrainSpline,
-    pub properties: TerrainSplineProperties,
+    pub spline: TerrainSplineCurve,
+    pub properties: TerrainSpline,
     pub spline_cached: TerrainSplineCached,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
@@ -66,7 +73,7 @@ pub struct TerrainSplineBundle {
 /// Defines the order in which to apply the modifier where lower values are applied earlier.
 #[derive(Component, Reflect, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[reflect(Component)]
-pub struct ModifierPriority(pub u32);
+pub struct ModifierPriority(pub i32);
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
@@ -77,13 +84,13 @@ pub struct TerrainTileAabb {
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TerrainSpline {
+pub struct TerrainSplineCurve {
     pub curve: CubicCurve<Vec3>,
 }
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TerrainSplineProperties {
+pub struct TerrainSpline {
     pub width: f32,
     pub falloff: f32,
 }
@@ -96,12 +103,14 @@ pub struct TerrainSplineCached {
 
 pub(super) struct TileModifierEntry {
     pub(super) entity: Entity,
+    /// Acts as a 8x8 map telling us where in the tile this modifier has an effect.
+    /// 
+    /// Allows us to skip checking modifiers for points that don't overlap, giving speed ups depending on how big the modifier is relative to the tile.
     pub(super) overlap_bits: u64,
 }
 
 #[derive(Resource, Default)]
 pub struct TileToModifierMapping {
-    /// Basically the u64 acts as a bitmask which tells us where in the tile we have an effect. This allows us to skip checking modifiers for height map entries that don't interact.
     pub(super) shape: HashMap<IVec2, Vec<TileModifierEntry>>,
     pub(super) splines: HashMap<IVec2, Vec<TileModifierEntry>>,
 }
@@ -110,13 +119,13 @@ pub(super) fn update_terrain_spline_cache(
     mut query: Query<
         (
             &mut TerrainSplineCached,
+            &TerrainSplineCurve,
             &TerrainSpline,
-            &TerrainSplineProperties,
             &GlobalTransform,
         ),
         Or<(
-            Changed<TerrainSplineProperties>,
             Changed<TerrainSpline>,
+            Changed<TerrainSplineCurve>,
             Changed<GlobalTransform>,
         )>,
     >,
@@ -149,12 +158,12 @@ pub(super) fn update_terrain_spline_aabb(
         (
             Entity,
             &TerrainSplineCached,
-            &TerrainSplineProperties,
+            &TerrainSpline,
             &mut TerrainTileAabb,
         ),
         (
             Changed<TerrainSplineCached>,
-            Changed<TerrainSplineProperties>,
+            Changed<TerrainSpline>,
         ),
     >,
     terrain_settings: Res<TerrainSettings>,
@@ -189,15 +198,15 @@ pub(super) fn update_terrain_spline_aabb(
                 let total_width = spline_properties.falloff + spline_properties.width;
 
                 (
-                    (min - total_width).as_ivec2() >> terrain_settings.tile_size_power,
-                    (max + total_width).as_ivec2() >> terrain_settings.tile_size_power,
+                    (min - total_width).as_ivec2() >> terrain_settings.tile_size_power.get(),
+                    (max + total_width).as_ivec2() >> terrain_settings.tile_size_power.get(),
                 )
             };
 
             for x in min.x..=max.x {
                 for y in min.y..=max.y {
                     let tile = IVec2::new(x, y);
-                    let tile_world = (tile << terrain_settings.tile_size_power).as_vec2();
+                    let tile_world = (tile << terrain_settings.tile_size_power.get()).as_vec2();
 
                     let mut overlap_bits = 0;
 
@@ -312,13 +321,13 @@ pub(super) fn update_shape_modifier_aabb(
             let min = min - shape.falloff;
             let max = max + shape.falloff;
 
-            let tile_min = min.as_ivec2() >> terrain_settings.tile_size_power;
-            let tile_max = max.as_ivec2() >> terrain_settings.tile_size_power;
+            let tile_min = min.as_ivec2() >> terrain_settings.tile_size_power.get();
+            let tile_max = max.as_ivec2() >> terrain_settings.tile_size_power.get();
 
             for x in tile_min.x..=tile_max.x {
                 for y in tile_min.y..=tile_max.y {
                     let tile = IVec2::new(x, y);
-                    let tile_world = (tile << terrain_settings.tile_size_power).as_vec2();
+                    let tile_world = (tile << terrain_settings.tile_size_power.get()).as_vec2();
 
                     let mut overlap_bits = 0;
 
