@@ -1,10 +1,9 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::info, math::{IVec2, Vec3}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
         mesh::{Indices, PrimitiveTopology},
         render_asset::RenderAssetUsages,
     }
 };
-use bevy_rapier3d::prelude::Collider;
 
 use crate::{
     terrain::{TerrainCoordinate, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
@@ -89,7 +88,7 @@ fn update_mesh_from_heights(
 
             repaint_texture_events.send(TerrainMeshRebuilt(terrain_coordinate.0));
 
-            commands.entity(entity).insert(Collider::heightfield(
+            /*commands.entity(entity).insert(Collider::heightfield(
                 heights.0.to_vec(),
                 terrain_settings.edge_points as usize,
                 terrain_settings.edge_points as usize,
@@ -98,7 +97,7 @@ fn update_mesh_from_heights(
                     1.0,
                     terrain_settings.tile_size(),
                 ),
-            ));
+            ));*/
         });
 }
 
@@ -112,23 +111,21 @@ fn create_terrain_mesh(
     heights: &[f32],
     neighbours: &[Option<&[f32]>; 4],
 ) -> Mesh {
-    let vertex_count = edge_length;
+    assert_eq!(edge_length * edge_length, heights.len() as u16);
 
-    assert_eq!(vertex_count * vertex_count, heights.len() as u16);
-
-    let num_vertices = (vertex_count * vertex_count) as usize;
-    let num_indices = ((vertex_count - 1) * (vertex_count - 1) * 6) as usize;
+    let vertex_edge = (edge_length - 1) as f32;
+    let num_vertices = edge_length as usize * edge_length as usize;
+    let num_indices = (edge_length as usize - 1) * (edge_length as usize - 1) * 6;
 
     let mut positions: Vec<Vec3> = Vec::with_capacity(num_vertices);
     let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(num_vertices);
-    let mut indices: Vec<u16> = Vec::with_capacity(num_indices);
 
-    for z in 0..vertex_count {
-        let tz = z as f32 / (vertex_count - 1) as f32;
+    for z in 0..edge_length {
+        let tz = z as f32 / vertex_edge;
         let z_i = z as usize * edge_length as usize;
 
-        for x in 0..vertex_count {
-            let tx = x as f32 / (vertex_count - 1) as f32;
+        for x in 0..edge_length {
+            let tx = x as f32 / vertex_edge;
 
             let index = z_i + x as usize;
 
@@ -138,42 +135,80 @@ fn create_terrain_mesh(
         }
     }
 
-    info!("Last UV: {:?} {:?}", uvs.first(), uvs.last());
-
-    // Create triangles.
-    for z in 0..vertex_count - 1 {
-        for x in 0..vertex_count - 1 {
-            let quad = z * vertex_count + x;
-            indices.push(quad + vertex_count + 1);
-            indices.push(quad + 1);
-            indices.push(quad + vertex_count);
-            indices.push(quad);
-            indices.push(quad + vertex_count);
-            indices.push(quad + 1);
-        }
-    }
-
     // Generate normals
     let mut normals = vec![Vec3::ZERO; positions.len()];
     let mut adjacency_counts = vec![0_u8; positions.len()];
 
-    indices.chunks_exact(3).for_each(|face| {
-        let [a, b, c] = [face[0], face[1], face[2]];
-        let normal = face_normal(
-            positions[a as usize],
-            positions[b as usize],
-            positions[c as usize],
-        );
+    // Create triangles.
+    // Using U16 when possible to save memory.
+    // Generally any time when edge_length <= 256. 
+    let indices = if num_vertices <= u16::MAX.into() {
+        let mut indices: Vec<u16> = Vec::with_capacity(num_indices);
 
-        [a, b, c].iter().for_each(|pos| {
-            normals[*pos as usize] += normal;
-            adjacency_counts[*pos as usize] += 1;
+        for z in 0..edge_length - 1 {
+            for x in 0..edge_length - 1 {
+                let quad = z * edge_length + x;
+                indices.push(quad + edge_length + 1);
+                indices.push(quad + 1);
+                indices.push(quad + edge_length);
+                indices.push(quad);
+                indices.push(quad + edge_length);
+                indices.push(quad + 1);
+            }
+        }
+    
+    
+        indices.chunks_exact(3).for_each(|face| {
+            let [a, b, c] = [face[0], face[1], face[2]];
+            let normal = face_normal(
+                positions[a as usize],
+                positions[b as usize],
+                positions[c as usize],
+            );
+    
+            [a, b, c].iter().for_each(|pos| {
+                normals[*pos as usize] += normal;
+                adjacency_counts[*pos as usize] += 1;
+            });
         });
-    });
+
+        Indices::U16(indices)
+    } else {
+        let mut indices: Vec<u32> = Vec::with_capacity(num_indices);
+
+        for z in 0..(edge_length - 1) as u32 {
+            for x in 0..(edge_length - 1) as u32 {
+                let quad = z * edge_length as u32 + x;
+                indices.push(quad + edge_length as u32 + 1);
+                indices.push(quad + 1);
+                indices.push(quad + edge_length as u32);
+                indices.push(quad);
+                indices.push(quad + edge_length as u32);
+                indices.push(quad + 1);
+            }
+        }
+    
+    
+        indices.chunks_exact(3).for_each(|face| {
+            let [a, b, c] = [face[0], face[1], face[2]];
+            let normal = face_normal(
+                positions[a as usize],
+                positions[b as usize],
+                positions[c as usize],
+            );
+    
+            [a, b, c].iter().for_each(|pos| {
+                normals[*pos as usize] += normal;
+                adjacency_counts[*pos as usize] += 1;
+            });
+        });
+
+        Indices::U32(indices)
+    };
+    
 
     // Add neighbors.
 
-    let vertex_edge = (vertex_count - 1) as f32;
     let step = (1.0 / vertex_edge) * size;
 
     // -X direction.
@@ -291,7 +326,7 @@ fn create_terrain_mesh(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
-    .with_inserted_indices(Indices::U16(indices))
+    .with_inserted_indices(indices)
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)

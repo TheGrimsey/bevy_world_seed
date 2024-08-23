@@ -1,8 +1,8 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
-use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{TerrainTexturingSettings, TextureModifier}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSplineCurve, TerrainSplineBundle, TerrainSplineCached, TerrainSpline, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseLayers {
             layers: vec![
-                TerrainNoiseLayer { height_scale: 3.0, planar_scale: 1.0 / 20.0, seed: 1 }
+                TerrainNoiseLayer { height_scale: 6.0, planar_scale: 1.0 / 30.0, seed: 1 }
             ],
         }),
         terrain_settings: TerrainSettings {
@@ -33,8 +33,25 @@ fn main() {
     });
 
     app.add_systems(Startup, spawn_terrain);
+    app.add_systems(Startup, insert_rules);
 
     app.run();
+}
+
+fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
+    texturing_rules.rules.push(TexturingRule {
+        evaluator: TexturingRuleEvaluator::AngleGreaterThan {
+            angle_radians: 40.0_f32.to_radians()
+        },
+        texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+    });
+    
+    texturing_rules.rules.push(TexturingRule {
+        evaluator: TexturingRuleEvaluator::AngleLessThan {
+            angle_radians: 40.0_f32.to_radians()
+        },
+        texture: asset_server.load("textures/brown_mud_leaves.dds"),
+    });
 }
 
 fn spawn_terrain(
@@ -124,7 +141,7 @@ fn spawn_terrain(
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
         },
         TextureModifier {
-            texture: asset_server.load("textures/brown_mud_leaves.jpg"),
+            texture: asset_server.load("textures/brown_mud_leaves.dds"),
             max_texture_strength: 0.95
         },
         Name::new("Modifier (Rectangle)")

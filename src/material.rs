@@ -1,13 +1,13 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate, Startup},
-    asset::{Asset, AssetApp, AssetServer, Assets, Handle},
+    app::{App, Plugin, PostUpdate},
+    asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
     log::{info, info_span},
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
     prelude::{
-        default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, With, Without
+        default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, Shader, With, Without
     },
     reflect::Reflect,
     render::{
@@ -23,6 +23,8 @@ use crate::{
     }, terrain::{TerrainCoordinate, TileToTerrain}, Heights, TerrainSets, TerrainSettings
 };
 
+pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
+
 pub struct TerrainTexturingPlugin(pub TerrainTexturingSettings);
 impl Plugin for TerrainTexturingPlugin {
     fn build(&self, app: &mut App) {
@@ -35,6 +37,9 @@ impl Plugin for TerrainTexturingPlugin {
             .register_type::<TextureModifier>()
             .register_type::<GlobalTexturingRules>();
 
+        
+        load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
+
         app.add_systems(
             PostUpdate,
             (
@@ -43,19 +48,7 @@ impl Plugin for TerrainTexturingPlugin {
             )
                 .chain(),
         );
-
-        app.add_systems(Startup, insert_rules);
     }
-}
-
-fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
-    texturing_rules.rules.push(TexturingRule {
-        evaluator: TexturingRuleEvaluator::Above {
-            height: 1.0,
-            falloff: 2.0,
-        },
-        texture: asset_server.load("textures/brown_mud_leaves.jpg"),
-    });
 }
 
 #[derive(Resource, Clone)]
@@ -84,7 +77,7 @@ pub struct TextureModifier {
     pub max_texture_strength: f32,
 }
 
-#[derive(Reflect)]
+#[derive(Reflect, Debug)]
 pub enum TexturingRuleEvaluator {
     Above {
         height: f32,
@@ -144,15 +137,15 @@ impl TexturingRuleEvaluator {
 }
 
 #[derive(Reflect)]
-struct TexturingRule {
-    evaluator: TexturingRuleEvaluator,
-    texture: Handle<Image>,
+pub struct TexturingRule {
+    pub evaluator: TexturingRuleEvaluator,
+    pub texture: Handle<Image>,
 }
 
 #[derive(Resource, Reflect)]
 #[reflect(Resource)]
-struct GlobalTexturingRules {
-    rules: Vec<TexturingRule>,
+pub struct GlobalTexturingRules {
+    pub rules: Vec<TexturingRule>,
 }
 
 // This struct defines the data that will be passed to your shader
@@ -226,7 +219,7 @@ type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMateria
 
 impl MaterialExtension for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/terrain.wgsl".into()
+        TERRAIN_SHADER_HANDLE.into()
     }
 }
 
@@ -335,7 +328,7 @@ fn update_terrain_texture_maps(
             let terrain_translation =
                 (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
 
-            {
+            if !texturing_rules.rules.is_empty() {
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 for rule in texturing_rules.rules.iter() {
@@ -378,7 +371,7 @@ fn update_terrain_texture_maps(
                             x_f - x_f.round(),
                             z_f - z_f.round(),
                         );
-                        let normal_angle = normal_at_position.dot(Vec3::Y);
+                        let normal_angle = normal_at_position.dot(Vec3::Y).acos();
 
                         let strength = rule.evaluator.eval(height_at_position, normal_angle);
 
@@ -506,13 +499,12 @@ fn update_terrain_texture_maps(
                             let vertex_position = terrain_translation + Vec2::new(x as f32, z as f32) * scale;
                             let mut distance = f32::INFINITY;
 
-                            for (a, b) in spline.points.iter().zip(spline.points.iter().skip(1)) {
-                                let a_2d = a.xz();
-                                let b_2d = b.xz();
-
-                                let (new_distance, _) =
-                                    minimum_distance(a_2d, b_2d, vertex_position);
-
+                            for points in spline.points.windows(2) {
+                                let a_2d = points[0].xz();
+                                let b_2d = points[1].xz();
+            
+                                let (new_distance, _) = minimum_distance(a_2d, b_2d, vertex_position);
+            
                                 if new_distance < distance {
                                     distance = new_distance;
                                 }
@@ -554,11 +546,11 @@ pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength
 
                 while to_remove > 0 {
                     let mut min_channel = 0;
-                    let mut min = u8::MAX;
+                    let mut min = u16::MAX;
                     for (i, val) in channels.iter().enumerate() {
-                        if i != target_channel && *val < min && *val > 0 {
+                        if i != target_channel && (*val as u16) < min && *val > 0 {
                             min_channel = i;
-                            min = *val;
+                            min = *val as u16;
                         }
                     }
 
