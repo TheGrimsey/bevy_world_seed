@@ -3,6 +3,10 @@
 
 This uses a spline to flatten terrain (as one would with a road). The terrain heightmap is updated when a modifier changes.
 
+## Collision
+
+This crate does not include colliders as managing different versions of physics crates is a headache.
+
 ## TODO
 
 - [X] Textures
@@ -11,7 +15,7 @@ This uses a spline to flatten terrain (as one would with a road). The terrain he
 
     - [X] From modifiers
     - [X] & heights.
-    - [ ] angle
+    - [X] angle
 
     *Write to it using modifiers, i.e a spline modifier can apply a road texture. Probably want to be able to do some falloff & noise at the edges.*
 

@@ -14,6 +14,7 @@ use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSplineCurve, TerrainSplineCached, TerrainSpline, TerrainTileAabb, TileToModifierMapping};
 use terrain::{update_tiling, TerrainCoordinate, TileToTerrain};
+use utils::distance_to_line_segment;
 
 pub mod modifiers;
 pub mod terrain;
@@ -24,6 +25,8 @@ mod debug_draw;
 mod meshing;
 #[cfg(feature = "rendering")]
 pub mod material;
+
+pub mod utils;
 
 /// System sets containing the crate's systems.
 #[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
@@ -160,11 +163,9 @@ impl TerrainSettings {
 #[derive(Event)]
 struct RebuildTile(IVec2);
 
-
 /// Emitted when the heights of a tile has been updated.
 #[derive(Event)]
 pub struct TileHeightsRebuilt(pub IVec2);
-
 
 #[derive(Component)]
 pub struct Heights(pub Box<[f32]>);
@@ -192,9 +193,8 @@ fn update_terrain_heights(
         return;
     }
 
-    let scale = terrain_settings.tile_size() / (terrain_settings.edge_points - 1) as f32;
-
     let tile_size = terrain_settings.tile_size();
+    let scale = tile_size / (terrain_settings.edge_points - 1) as f32;
     let inv_tile_size_scale =  scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue.len().min(terrain_settings.max_tile_updates_per_frame.get() as usize);
@@ -213,7 +213,7 @@ fn update_terrain_heights(
             heights.0.fill(0.0);
     
             // First, set by noise.
-            {
+            if !terrain_noise_layers.layers.is_empty() {
                 let _span = info_span!("Apply noise").entered();
                 for (i, val) in heights.0.iter_mut().enumerate() {
                     let x = i % terrain_settings.edge_points as usize;
@@ -312,7 +312,7 @@ fn update_terrain_heights(
                                 let a_2d = points[0].xz();
                                 let b_2d = points[1].xz();
             
-                                let (new_distance, t) = minimum_distance(a_2d, b_2d, vertex_position);
+                                let (new_distance, t) = distance_to_line_segment(a_2d, b_2d, vertex_position);
             
                                 if new_distance < distance {
                                     distance = new_distance;
@@ -368,26 +368,4 @@ fn apply_modifier(modifier_properties: &ModifierProperties, operation: &Modifier
 
     new_val
 
-}
-
-pub fn minimum_distance(v: Vec2, w: Vec2, p: Vec2) -> (f32, f32) {
-    let vw = w - v;
-    let pv = p - v;
-    
-    // Compute squared length of the segment (w - v)
-    let l2 = vw.length_squared();
-
-    // Handle degenerate case where v == w
-    if l2 == 0.0 {
-        return (pv.length_squared(), 1.0);
-    }
-
-    // Calculate the projection factor t
-    let t = (pv.dot(vw) / l2).clamp(0.0, 1.0);
-    
-    // Compute the projection point on the segment
-    let projection = v + vw * t;
-
-    // Return the squared distance and the projection factor t
-    (p.distance_squared(projection), t)
 }

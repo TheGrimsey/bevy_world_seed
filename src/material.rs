@@ -18,9 +18,9 @@ use bevy::{
 };
 
 use crate::{
-    meshing::TerrainMeshRebuilt, minimum_distance, modifiers::{
+    distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
         Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
-    }, terrain::{TerrainCoordinate, TileToTerrain}, Heights, TerrainSets, TerrainSettings
+    }, terrain::{TerrainCoordinate, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position}, Heights, TerrainSets, TerrainSettings
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
@@ -353,24 +353,29 @@ fn update_terrain_texture_maps(
                         let vertex_c = vertex_a + terrain_settings.edge_points as usize;
                         let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
 
+                        // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
+
+                        let local_x = x_f - x_f.round();
+                        let local_z = z_f - z_f.round();
+
                         let height_at_position = unsafe { get_height_at_position(
                             *heights.0.get_unchecked(vertex_a),
                             *heights.0.get_unchecked(vertex_b),
                             *heights.0.get_unchecked(vertex_c),
                             *heights.0.get_unchecked(vertex_d),
-                            x_f - x_f.round(),
+                            local_x,
                             z_f - z_f.round(),
                         )};
 
                         let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
-                        let normal_at_position = get_normal_at_position(
-                            normals[vertex_a].into(),
-                            normals[vertex_b].into(),
-                            normals[vertex_c].into(),
-                            normals[vertex_d].into(),
-                            x_f - x_f.round(),
-                            z_f - z_f.round(),
-                        );
+                        let normal_at_position = unsafe { get_normal_at_position(
+                            (*normals.get_unchecked(vertex_a)).into(),
+                            (*normals.get_unchecked(vertex_b)).into(),
+                            (*normals.get_unchecked(vertex_c)).into(),
+                            (*normals.get_unchecked(vertex_d)).into(),
+                            local_x,
+                            local_z,
+                        )};
                         let normal_angle = normal_at_position.dot(Vec3::Y).acos();
 
                         let strength = rule.evaluator.eval(height_at_position, normal_angle);
@@ -503,7 +508,7 @@ fn update_terrain_texture_maps(
                                 let a_2d = points[0].xz();
                                 let b_2d = points[1].xz();
             
-                                let (new_distance, _) = minimum_distance(a_2d, b_2d, vertex_position);
+                                let (new_distance, _) = distance_to_line_segment(a_2d, b_2d, vertex_position);
             
                                 if new_distance < distance {
                                     distance = new_distance;
@@ -563,58 +568,4 @@ pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength
         }
         channels[target_channel] = strength;
     }
-}
-
-/*
-*   A -- B
-*   I    I
-*   I    I
-*   C -- D
-*/
-
-// TODO: Make into util function.
-#[inline]
-pub fn get_height_at_position(a: f32, b: f32, c: f32, d: f32, x: f32, y: f32) -> f32 {
-    // Determine which triangle the point (x, y) lies in
-    if x + y <= 1.0 {
-        // Point is in triangle ABC
-        closest_height_in_triangle(a, b, c, x, y)
-    } else {
-        // Point is in triangle BCD
-        closest_height_in_triangle(b, c, d, x, y)
-    }
-}
-
-#[inline]
-fn closest_height_in_triangle(a: f32, b: f32, c: f32, x: f32, y: f32) -> f32 {
-    // Calculate barycentric coordinates for the point (x, y) within the triangle
-    let u = 1.0 - x - y;
-    let v = x;
-    let w = y;
-
-    // Return the interpolated height based on barycentric coordinates
-    a * u + b * v + c * w
-}
-
-#[inline]
-pub fn get_normal_at_position(a: Vec3, b: Vec3, c: Vec3, d: Vec3, x: f32, y: f32) -> Vec3 {
-    // Determine which triangle the point (x, y) lies in
-    if x + y <= 1.0 {
-        // Point is in triangle ABC
-        closest_normal_in_triangle(a, b, c, x, y)
-    } else {
-        // Point is in triangle BCD
-        closest_normal_in_triangle(b, c, d, x, y)
-    }
-}
-
-#[inline]
-fn closest_normal_in_triangle(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32) -> Vec3 {
-    // Calculate barycentric coordinates for the point (x, y) within the triangle
-    let u = 1.0 - x - y;
-    let v = x;
-    let w = y;
-
-    // Return the interpolated height based on barycentric coordinates
-    a * u + b * v + c * w
 }

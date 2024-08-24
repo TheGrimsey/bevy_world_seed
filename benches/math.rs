@@ -1,10 +1,10 @@
 use bevy::math::Vec2;
-use bevy_terrain_test::{material::{apply_texture, get_height_at_position, TexturingRuleEvaluator}, minimum_distance};
+use bevy_terrain_test::{material::{apply_texture, TexturingRuleEvaluator}, utils::{distance_to_line_segment, get_height_at_position}};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Minimum distance", |b| {
-        b.iter(black_box(|| minimum_distance(Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0,  0.57))))
+        b.iter(black_box(|| distance_to_line_segment(Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0,  0.57))))
     });
     
     c.bench_function("Height at position", |b| {
