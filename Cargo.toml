@@ -21,7 +21,7 @@ noise = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.5" }
-bevy = { version = "0.14", features = ["jpeg", "dds"] }
+bevy = { version = "0.14", features = ["jpeg", "dds", "asset_processor"] }
 bevy_editor_pls = { git = "https://github.com/zhaop/bevy_editor_pls.git", branch = "bevy-0.14" }
 
 [[example]]
