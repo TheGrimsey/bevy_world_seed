@@ -74,7 +74,11 @@ impl TerrainTexturingSettings {
 #[reflect(Component)]
 pub struct TextureModifier {
     pub texture: Handle<Image>,
-    pub max_texture_strength: f32,
+    pub max_strength: f32,
+    /// Represents how much the texture will tile in a single terrain tile.
+    /// 
+    /// `1.0` means the texture will cover the entire tile. `2.0` means the texture will repeat twice in each direction. 
+    pub tiling_factor: f32
 }
 
 #[derive(Reflect, Debug)]
@@ -140,6 +144,10 @@ impl TexturingRuleEvaluator {
 pub struct TexturingRule {
     pub evaluator: TexturingRuleEvaluator,
     pub texture: Handle<Image>,
+    /// Represents how much the texture will tile in a single terrain tile.
+    /// 
+    /// `1.0` means the texture will cover the entire tile. `2.0` means the texture will repeat twice in each direction. 
+    pub tiling_factor: f32
 }
 
 #[derive(Resource, Reflect)]
@@ -158,15 +166,30 @@ pub(super) struct TerrainMaterial {
     #[texture(22)]
     #[sampler(23)]
     texture_a: Option<Handle<Image>>,
-    #[texture(24)]
-    #[sampler(25)]
+
+    #[uniform(24)]
+    texture_a_scale: f32,
+
+    #[texture(25)]
+    #[sampler(26)]
     texture_b: Option<Handle<Image>>,
-    #[texture(26)]
-    #[sampler(27)]
-    texture_c: Option<Handle<Image>>,
+    
+    #[uniform(27)]
+    texture_b_scale: f32,
+
     #[texture(28)]
     #[sampler(29)]
+    texture_c: Option<Handle<Image>>,
+    
+    #[uniform(30)]
+    texture_c_scale: f32,
+
+    #[texture(31)]
+    #[sampler(32)]
     texture_d: Option<Handle<Image>>,
+    
+    #[uniform(33)]
+    texture_d_scale: f32,
 }
 impl TerrainMaterial {
     pub fn clear_textures(&mut self) {
@@ -176,33 +199,37 @@ impl TerrainMaterial {
         self.texture_d = None;
     }
 
-    pub fn get_texture_slot(&mut self, image: &Handle<Image>) -> Option<usize> {
+    pub fn get_texture_slot(&mut self, image: &Handle<Image>, scale: f32) -> Option<usize> {
         /*
          *   There has to be a better way to do this, right?
          */
 
-        if self.texture_a.as_ref().is_some_and(|entry| entry == image) {
+        if self.texture_a.as_ref().is_some_and(|entry| entry == image && self.texture_a_scale == scale) {
             Some(0)
-        } else if self.texture_b.as_ref().is_some_and(|entry| entry == image) {
+        } else if self.texture_b.as_ref().is_some_and(|entry| entry == image && self.texture_b_scale == scale) {
             Some(1)
-        } else if self.texture_c.as_ref().is_some_and(|entry| entry == image) {
+        } else if self.texture_c.as_ref().is_some_and(|entry| entry == image && self.texture_c_scale == scale) {
             Some(2)
-        } else if self.texture_d.as_ref().is_some_and(|entry| entry == image) {
+        } else if self.texture_d.as_ref().is_some_and(|entry| entry == image && self.texture_d_scale == scale) {
             Some(3)
         } else if self.texture_a.is_none() {
             self.texture_a = Some(image.clone());
+            self.texture_a_scale = scale;
 
             Some(0)
         } else if self.texture_b.is_none() {
             self.texture_b = Some(image.clone());
+            self.texture_b_scale = scale;
 
             Some(1)
         } else if self.texture_c.is_none() {
             self.texture_c = Some(image.clone());
+            self.texture_c_scale = scale;
 
             Some(2)
         } else if self.texture_d.is_none() {
             self.texture_d = Some(image.clone());
+            self.texture_d_scale = scale;
 
             Some(3)
         } else {
@@ -332,7 +359,7 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 for rule in texturing_rules.rules.iter() {
-                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture) else {
+                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture, rule.tiling_factor) else {
                         info!("Hit max texture channels.");
                         return;
                     };
@@ -395,7 +422,7 @@ fn update_terrain_texture_maps(
                         shape_modifier_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
                         else {
                             info!("Hit max texture channels.");
                             return;
@@ -422,7 +449,7 @@ fn update_terrain_texture_maps(
                                         - ((pixel_position.distance(shape_translation) - radius)
                                             / modifier.falloff)
                                             .clamp(0.0, 1.0))
-                                    .min(texture_modifier.max_texture_strength);
+                                    .min(texture_modifier.max_strength);
 
                                     // Apply texture.
                                     apply_texture(val, texture_channel, strength);
@@ -464,7 +491,7 @@ fn update_terrain_texture_maps(
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
                                     let strength = (1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0))
-                                        .min(texture_modifier.max_texture_strength);
+                                        .min(texture_modifier.max_strength);
 
                                     // Apply texture.
                                     apply_texture(val, texture_channel, strength);
@@ -484,7 +511,7 @@ fn update_terrain_texture_maps(
                         spline_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
                         else {
                             info!("Hit max texture channels.");
                             continue;
@@ -519,7 +546,7 @@ fn update_terrain_texture_maps(
                                 - ((distance.sqrt() - spline_properties.width)
                                     / spline_properties.falloff)
                                     .clamp(0.0, 1.0))
-                            .min(texture_modifier.max_texture_strength);
+                            .min(texture_modifier.max_strength);
 
                             // Apply texture.
                             apply_texture(val, texture_channel, strength);

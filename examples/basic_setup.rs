@@ -44,6 +44,7 @@ fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server:
             angle_radians: 40.0_f32.to_radians()
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+        tiling_factor: 2.0
     });
     
     texturing_rules.rules.push(TexturingRule {
@@ -51,6 +52,7 @@ fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server:
             angle_radians: 40.0_f32.to_radians()
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
+        tiling_factor: 1.0
     });
 }
 
@@ -93,7 +95,8 @@ fn spawn_terrain(
         },
         TextureModifier {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-            max_texture_strength: 0.95
+            max_strength: 0.95,
+            tiling_factor: 2.0
         },
         Name::new("Spline")
     ));
@@ -117,7 +120,8 @@ fn spawn_terrain(
         },
         TextureModifier {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-            max_texture_strength: 0.95
+            max_strength: 0.95,
+            tiling_factor: 2.0
         },
         Name::new("Modifier (Circle)")
     ));
@@ -142,7 +146,8 @@ fn spawn_terrain(
         },
         TextureModifier {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
-            max_texture_strength: 0.95
+            max_strength: 0.95,
+            tiling_factor: 1.0
         },
         Name::new("Modifier (Rectangle)")
     ));
