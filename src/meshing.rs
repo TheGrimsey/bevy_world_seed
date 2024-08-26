@@ -6,7 +6,7 @@ use bevy::{
 };
 
 use crate::{
-    terrain::{TerrainCoordinate, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
+    material::ATTRIBUTE_HEIGHTS, terrain::{TerrainCoordinate, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
 };
 
 pub struct TerrainMeshingPlugin;
@@ -24,6 +24,16 @@ impl Plugin for TerrainMeshingPlugin {
 
 #[derive(Event)]
 pub struct TerrainMeshRebuilt(pub IVec2);
+
+/*
+*   Meshes make up majority of memory usage.
+*   We could probably simplify positions down from 3 f32s to 1 f32s. We can calculate X&Z from the vertex index.
+*   We don't need UVs as we can calculate those from the vertex index as well.
+*   
+*   Then we could save 4 * (2 + 2) = 16 bytes per vertex.
+*   We need a custom vertex pipeline!
+*   https://bevyengine.org/examples/shaders/custom-vertex-attribute/
+*/
 
 /*
 *   0: -X,
@@ -105,6 +115,13 @@ fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     (b - a).cross(c - a).normalize()
 }
 
+fn index_to_position(index: usize, height: f32, edge_points: usize, vertex_spacing: f32) -> Vec3 {
+    let x = index % edge_points;
+    let z = index / edge_points;
+
+    Vec3::new(x as f32 * vertex_spacing, height, z as f32 * vertex_spacing)
+}
+
 fn create_terrain_mesh(
     size: f32,
     edge_length: u16,
@@ -117,27 +134,11 @@ fn create_terrain_mesh(
     let num_vertices = edge_length as usize * edge_length as usize;
     let num_indices = (edge_length as usize - 1) * (edge_length as usize - 1) * 6;
 
-    let mut positions: Vec<Vec3> = Vec::with_capacity(num_vertices);
-    let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(num_vertices);
-
-    for z in 0..edge_length {
-        let tz = z as f32 / vertex_edge;
-        let z_i = z as usize * edge_length as usize;
-
-        for x in 0..edge_length {
-            let tx = x as f32 / vertex_edge;
-
-            let index = z_i + x as usize;
-
-            let pos = Vec3::new(tx * size, heights[index], tz * size);
-            positions.push(pos);
-            uvs.push([tx, tz]);
-        }
-    }
+    let vertex_spacing = (1.0 / vertex_edge) * size;
 
     // Generate normals
-    let mut normals = vec![Vec3::ZERO; positions.len()];
-    let mut adjacency_counts = vec![0_u8; positions.len()];
+    let mut normals = vec![Vec3::ZERO; heights.len()];
+    let mut adjacency_counts = vec![0_u8; heights.len()];
 
     // Create triangles.
     // Using U16 when possible to save memory.
@@ -161,9 +162,9 @@ fn create_terrain_mesh(
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
             let normal = face_normal(
-                positions[a as usize],
-                positions[b as usize],
-                positions[c as usize],
+                index_to_position(a as usize, heights[a as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(b as usize, heights[b as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(c as usize, heights[c as usize], (edge_length - 1).into(), vertex_spacing),
             );
     
             [a, b, c].iter().for_each(|pos| {
@@ -192,9 +193,9 @@ fn create_terrain_mesh(
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
             let normal = face_normal(
-                positions[a as usize],
-                positions[b as usize],
-                positions[c as usize],
+                index_to_position(a as usize, heights[a as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(b as usize, heights[b as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(c as usize, heights[c as usize], (edge_length - 1).into(), vertex_spacing),
             );
     
             [a, b, c].iter().for_each(|pos| {
@@ -218,7 +219,7 @@ fn create_terrain_mesh(
             .skip(edge_length.into())
             .step_by(edge_length.into())
         {
-            let s = positions[x];
+            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
             // 3 bottom triangles.
 
             let a_i = x + edge_length as usize;
@@ -247,7 +248,7 @@ fn create_terrain_mesh(
             .skip(edge_length as usize + edge_length as usize - 1)
             .step_by(edge_length.into())
         {
-            let s = positions[x];
+            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
             // 3 bottom triangles.
 
             let a_i = x - edge_length as usize;
@@ -275,7 +276,7 @@ fn create_terrain_mesh(
 
         // Ignoring corners.
         for x in 1..(edge_length - 1) as usize {
-            let s = positions[x];
+            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
             // 3 bottom triangles.
             let a = Vec3::new(s.x - step, heights[x - 1], s.z);
             let b = Vec3::new(s.x, neighbor_row[x], s.z - step);
@@ -299,7 +300,8 @@ fn create_terrain_mesh(
         for x in 1..(edge_length - 1) as usize {
             let s_x = (edge_length as usize * (edge_length as usize - 1)) + x;
 
-            let s: Vec3 = positions[s_x];
+            let s = index_to_position(s_x, heights[s_x], (edge_length - 1).into(), vertex_spacing);
+            
             // 3 top triangles.
             let a = Vec3::new(s.x + step, heights[s_x + 1], s.z);
             let b = Vec3::new(s.x, neighbor_row[x], s.z + step);
@@ -327,7 +329,6 @@ fn create_terrain_mesh(
         RenderAssetUsages::default(),
     )
     .with_inserted_indices(indices)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(ATTRIBUTE_HEIGHTS, heights.to_vec())
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
 }
