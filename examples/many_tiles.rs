@@ -88,7 +88,7 @@ fn spawn_terrain(
                 Heights(flat_heights.clone()),
                 TransformBundle::from_transform(Transform::from_translation(Vec3::new(x as f32 * terrain_settings.tile_size(), 0.0,  z as f32 * terrain_settings.tile_size()))),
                 VisibilityBundle::default(),
-                Name::new(format!("Terrain ({x},{z}"))
+                Name::new(format!("Terrain ({x},{z})"))
             ));
         }
     }

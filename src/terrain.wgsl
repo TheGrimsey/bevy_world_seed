@@ -1,11 +1,11 @@
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
-    prepass_io::{FragmentOutput},
+    prepass_io::{FragmentOutput, VertexOutput},
     pbr_deferred_functions::deferred_output,
 }
 #else
 #import bevy_pbr::{
-    forward_io::{FragmentOutput},
+    forward_io::{FragmentOutput, VertexOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
 }
 #endif
@@ -26,16 +26,9 @@ struct Vertex {
     @builtin(vertex_index) index: u32,
 }
 
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) world_position: vec4<f32>,
-    @location(1) world_normal: vec3<f32>,
-    
-    @location(2) uv: vec2<f32>,
-}
 
-@group(2) @binding(10) var<uniform> tile_size: f32;
-@group(2) @binding(11) var<uniform> edge_points: u32;
+@group(2) @binding(34) var<uniform> tile_size: f32;
+@group(2) @binding(35) var<uniform> edge_points: u32;
 
 @group(2) @binding(20) var texture_map: texture_2d<f32>;
 @group(2) @binding(21) var texture_map_sampler: sampler;
@@ -78,15 +71,17 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
         vertex_no_morph.instance_index
     );
 
-    var x = f32(vertex.index % edge_points) / f32(edge_points);
-    var z = f32(vertex.index) / f32(edge_points);
+    var x = f32(vertex.index % (edge_points + 1)) / f32(edge_points);
+    var z = f32(vertex.index / (edge_points + 1)) / f32(edge_points);
 
-    var position = vec3<f32>(f32(x) * tile_size, vertex.height, f32(z) * tile_size);
+    var position = vec3<f32>(x * tile_size, vertex.height, z * tile_size);
 
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
 
+#ifdef VERTEX_UVS_A
     out.uv = vec2<f32>(x, z);
+#endif
 
     return out;
 }
@@ -105,6 +100,8 @@ fn fragment(
     // write the gbuffer, lighting pass id, and optionally normal and motion_vector textures
     let out = deferred_output(in, pbr_input);
 #else
+
+#ifdef VERTEX_UVS_A
     var texture_weights = textureSample(texture_map, texture_map_sampler, mesh.uv);
 
     var diffuse_a = textureSample(texture_a, texture_a_sampler, fract(mesh.uv * texture_a_scale)) * texture_weights.x;
@@ -116,7 +113,7 @@ fn fragment(
     
     // Replace color with out mixed color.
     pbr_input.material.base_color =  color;
-
+#endif
     // apply lighting
     var out = apply_pbr_lighting(pbr_input);
     // apply post processsing. 

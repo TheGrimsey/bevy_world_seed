@@ -163,7 +163,7 @@ fn spawn_terrain(
         Name::new("Terrain")
     ));
 
-    commands.spawn((
+    /*commands.spawn((
         TerrainCoordinate::default(),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, 0.0))),
@@ -185,5 +185,5 @@ fn spawn_terrain(
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain (1, 1)")
-    ));
+    ));*/
 }

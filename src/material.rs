@@ -5,7 +5,7 @@ use bevy::{
     asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
     log::{info, info_span},
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    pbr::{Material, MaterialPlugin},
+    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, StandardMaterial},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, Shader, With, Without
     },
@@ -26,7 +26,7 @@ pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(1381675
 pub struct TerrainTexturingPlugin(pub TerrainTexturingSettings);
 impl Plugin for TerrainTexturingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default());
+        app.add_plugins(MaterialPlugin::<TerrainMaterialExtended>::default());
 
         app.insert_resource(self.0.clone());
         app.insert_resource(GlobalTexturingRules { rules: vec![] });
@@ -158,9 +158,9 @@ pub struct GlobalTexturingRules {
 #[derive(Asset, AsBindGroup, Default, Debug, Clone, Reflect)]
 #[reflect(Default, Debug)]
 pub(super) struct TerrainMaterial {
-    #[uniform(10)]
+    #[uniform(34)]
     tile_size: f32,
-    #[uniform(11)]
+    #[uniform(35)]
     edge_points: u32,
 
     #[texture(20)]
@@ -248,7 +248,7 @@ impl TerrainMaterial {
 pub const ATTRIBUTE_HEIGHTS: MeshVertexAttribute =
     MeshVertexAttribute::new("Height", 724683397550405073, VertexFormat::Float32);
 
-impl Material for TerrainMaterial {
+impl MaterialExtension for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
         TERRAIN_SHADER_HANDLE.into()
     }
@@ -261,38 +261,33 @@ impl Material for TerrainMaterial {
         TERRAIN_SHADER_HANDLE.into()
     }
 
-    fn prepass_fragment_shader() -> ShaderRef {
-        TERRAIN_SHADER_HANDLE.into()
-    }
-
     fn specialize(
-            _pipeline: &bevy::pbr::MaterialPipeline<Self>,
+            _pipeline: &MaterialExtensionPipeline,
             descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
             layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
-            _key: bevy::pbr::MaterialPipelineKey<Self>,
+            _key: MaterialExtensionKey<Self>,
         ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         let vertex_layout = layout.0.get_layout(&[
             ATTRIBUTE_HEIGHTS.at_shader_location(0),
             Mesh::ATTRIBUTE_NORMAL.at_shader_location(1)
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
-        
-        if let Some(fragment) = descriptor.fragment.as_mut() {
-            let shader_defs = &mut fragment.shader_defs;
-            shader_defs.push("VERTEX_UVS_A".into());
-        }
+
+        info!("Keys: {:?}", _key.mesh_key);
 
         Ok(())
     }
 }
 
+type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
+
 fn insert_texture_map(
     terrain_settings: Res<TerrainSettings>,
     texture_settings: Res<TerrainTexturingSettings>,
     mut commands: Commands,
-    mut materials: ResMut<Assets<TerrainMaterial>>,
+    mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
-    query: Query<Entity, (With<Heights>, Without<Handle<TerrainMaterial>>)>,
+    query: Query<Entity, (With<Heights>, Without<Handle<TerrainMaterialExtended>>)>,
 ) {
     let resolution = texture_settings.resolution();
     let texture_format = TextureFormat::Rgba8Unorm;
@@ -314,17 +309,18 @@ fn insert_texture_map(
 
         let material = TerrainMaterial {
             texture_map: image_handle,
-            edge_points: terrain_settings.edge_points as u32,
+            edge_points: terrain_settings.edge_points as u32 - 1,
             tile_size: terrain_settings.tile_size(),
             ..default()
         };
-        /*
-        StandardMaterial {
-                perceptual_roughness: 1.0,
-                ..default()
-            }
-         */
-        let material_handle = materials.add(material);
+        let standard_material = StandardMaterial {
+            perceptual_roughness: 1.0,
+            ..default()
+        };
+        let material_handle = materials.add(TerrainMaterialExtended {
+            base: standard_material,
+            extension: material,
+        });
 
         commands.entity(entity).insert(material_handle);
     });
@@ -337,14 +333,14 @@ fn update_terrain_texture_maps(
         &TerrainSplineCached,
         &TerrainSpline,
     )>,
-    tiles_query: Query<(&Heights, &Handle<TerrainMaterial>, &Handle<Mesh>, &TerrainCoordinate)>,
+    tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &TerrainCoordinate)>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
     mut event_reader: EventReader<TerrainMeshRebuilt>,
     mut tile_generate_queue: Local<Vec<IVec2>>,
-    mut materials: ResMut<Assets<TerrainMaterial>>,
+    mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
     texturing_rules: Res<GlobalTexturingRules>,
@@ -383,12 +379,12 @@ fn update_terrain_texture_maps(
             let Some(mesh) = meshes.get(mesh) else {
                 return;
             };
-            let Some(texture) = images.get_mut(material.texture_map.id()) else {
+            let Some(texture) = images.get_mut(material.extension.texture_map.id()) else {
                 return;
             };
 
             texture.data.fill(0);
-            material.clear_textures();
+            material.extension.clear_textures();
 
             let terrain_translation =
                 (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
@@ -397,7 +393,7 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 for rule in texturing_rules.rules.iter() {
-                    let Some(texture_channel) = material.get_texture_slot(&rule.texture, rule.tiling_factor) else {
+                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture, rule.tiling_factor) else {
                         info!("Hit max texture channels.");
                         return;
                     };
@@ -460,7 +456,7 @@ fn update_terrain_texture_maps(
                         shape_modifier_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
                         else {
                             info!("Hit max texture channels.");
                             return;
@@ -549,7 +545,7 @@ fn update_terrain_texture_maps(
                         spline_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
                         else {
                             info!("Hit max texture channels.");
                             continue;
