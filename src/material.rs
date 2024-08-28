@@ -5,7 +5,7 @@ use bevy::{
     asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
     log::{info, info_span},
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, StandardMaterial},
+    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey, StandardMaterial, PBR_PREPASS_SHADER_HANDLE},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, Shader, With, Without
     },
@@ -261,6 +261,14 @@ impl MaterialExtension for TerrainMaterial {
         TERRAIN_SHADER_HANDLE.into()
     }
 
+    fn prepass_fragment_shader() -> ShaderRef {
+        PBR_PREPASS_SHADER_HANDLE.into()
+    }
+
+    fn deferred_vertex_shader() -> ShaderRef {
+        TERRAIN_SHADER_HANDLE.into()
+    }
+
     fn specialize(
             _pipeline: &MaterialExtensionPipeline,
             descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
@@ -272,8 +280,15 @@ impl MaterialExtension for TerrainMaterial {
             Mesh::ATTRIBUTE_NORMAL.at_shader_location(1)
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
+        
+        descriptor.vertex.shader_defs.push("VERTEX_NORMALS".into());
+        descriptor.vertex.shader_defs.push("VERTEX_UVS_A".into());
 
-        info!("Keys: {:?}", _key.mesh_key);
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            let shader_defs = &mut fragment.shader_defs;
+            shader_defs.push("VERTEX_UVS_A".into());
+            shader_defs.push("VERTEX_NORMALS".into());
+        }
 
         Ok(())
     }

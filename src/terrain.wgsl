@@ -26,7 +26,6 @@ struct Vertex {
     @builtin(vertex_index) index: u32,
 }
 
-
 @group(2) @binding(34) var<uniform> tile_size: f32;
 @group(2) @binding(35) var<uniform> edge_points: u32;
 

@@ -115,11 +115,11 @@ fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     (b - a).cross(c - a).normalize()
 }
 
-fn index_to_position(index: usize, height: f32, edge_points: usize, vertex_spacing: f32) -> Vec3 {
-    let x = index % edge_points;
-    let z = index / edge_points;
+fn index_to_position(index: usize, height: f32, edge_points: usize, size: f32) -> Vec3 {
+    let x = (index % edge_points) as f32 / (edge_points-1) as f32;
+    let z = (index / edge_points) as f32 / (edge_points-1) as f32;
 
-    Vec3::new(x as f32 * vertex_spacing, height, z as f32 * vertex_spacing)
+    Vec3::new(x * size, height, z * size)
 }
 
 fn create_terrain_mesh(
@@ -133,8 +133,6 @@ fn create_terrain_mesh(
     let vertex_edge = (edge_length - 1) as f32;
     let num_vertices = edge_length as usize * edge_length as usize;
     let num_indices = (edge_length as usize - 1) * (edge_length as usize - 1) * 6;
-
-    let vertex_spacing = (1.0 / vertex_edge) * size;
 
     // Generate normals
     let mut normals = vec![Vec3::ZERO; heights.len()];
@@ -162,9 +160,9 @@ fn create_terrain_mesh(
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
             let normal = face_normal(
-                index_to_position(a as usize, heights[a as usize], (edge_length - 1).into(), vertex_spacing),
-                index_to_position(b as usize, heights[b as usize], (edge_length - 1).into(), vertex_spacing),
-                index_to_position(c as usize, heights[c as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(a as usize, heights[a as usize], edge_length.into(), size),
+                index_to_position(b as usize, heights[b as usize], edge_length.into(), size),
+                index_to_position(c as usize, heights[c as usize], edge_length.into(), size),
             );
     
             [a, b, c].iter().for_each(|pos| {
@@ -193,9 +191,9 @@ fn create_terrain_mesh(
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
             let normal = face_normal(
-                index_to_position(a as usize, heights[a as usize], (edge_length - 1).into(), vertex_spacing),
-                index_to_position(b as usize, heights[b as usize], (edge_length - 1).into(), vertex_spacing),
-                index_to_position(c as usize, heights[c as usize], (edge_length - 1).into(), vertex_spacing),
+                index_to_position(a as usize, heights[a as usize], edge_length.into(), size),
+                index_to_position(b as usize, heights[b as usize], edge_length.into(), size),
+                index_to_position(c as usize, heights[c as usize], edge_length.into(), size),
             );
     
             [a, b, c].iter().for_each(|pos| {
@@ -219,7 +217,7 @@ fn create_terrain_mesh(
             .skip(edge_length.into())
             .step_by(edge_length.into())
         {
-            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
+            let s = index_to_position(x, heights[x], edge_length.into(), size);
             // 3 bottom triangles.
 
             let a_i = x + edge_length as usize;
@@ -248,7 +246,7 @@ fn create_terrain_mesh(
             .skip(edge_length as usize + edge_length as usize - 1)
             .step_by(edge_length.into())
         {
-            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
+            let s = index_to_position(x, heights[x], edge_length.into(), size);
             // 3 bottom triangles.
 
             let a_i = x - edge_length as usize;
@@ -276,7 +274,7 @@ fn create_terrain_mesh(
 
         // Ignoring corners.
         for x in 1..(edge_length - 1) as usize {
-            let s = index_to_position(x, heights[x], (edge_length - 1).into(), vertex_spacing);
+            let s = index_to_position(x, heights[x], edge_length.into(), size);
             // 3 bottom triangles.
             let a = Vec3::new(s.x - step, heights[x - 1], s.z);
             let b = Vec3::new(s.x, neighbor_row[x], s.z - step);
@@ -300,7 +298,7 @@ fn create_terrain_mesh(
         for x in 1..(edge_length - 1) as usize {
             let s_x = (edge_length as usize * (edge_length as usize - 1)) + x;
 
-            let s = index_to_position(s_x, heights[s_x], (edge_length - 1).into(), vertex_spacing);
+            let s = index_to_position(s_x, heights[s_x], edge_length.into(), size);
             
             // 3 top triangles.
             let a = Vec3::new(s.x + step, heights[s_x + 1], s.z);
