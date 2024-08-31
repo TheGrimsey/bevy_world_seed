@@ -1,6 +1,6 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
-use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Camera3dBundle, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
 use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
@@ -152,6 +152,11 @@ fn spawn_terrain(
         Name::new("Modifier (Rectangle)")
     ));
 
+    commands.spawn(Camera3dBundle {
+        transform: Transform::from_translation(Vec3::new(16.0, 15.0, -16.0)).looking_at(Vec3::new(16.0, 0.0, 16.0), Vec3::Y),
+        ..default()
+    });
+
     let size = terrain_settings.edge_points as usize * terrain_settings.edge_points as usize;
     let flat_heights = vec![0.0; size].into_boxed_slice();
 
@@ -163,7 +168,7 @@ fn spawn_terrain(
         Name::new("Terrain")
     ));
 
-    /*commands.spawn((
+    commands.spawn((
         TerrainCoordinate::default(),
         Heights(flat_heights.clone()),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, 0.0))),
@@ -185,5 +190,5 @@ fn spawn_terrain(
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain (1, 1)")
-    ));*/
+    ));
 }

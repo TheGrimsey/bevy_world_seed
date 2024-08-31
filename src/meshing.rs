@@ -1,7 +1,6 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
-        mesh::{Indices, PrimitiveTopology},
-        render_asset::RenderAssetUsages,
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3, Vec3A}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
+        mesh::{Indices, PrimitiveTopology}, primitives::Aabb, render_asset::RenderAssetUsages
     }
 };
 
@@ -45,15 +44,17 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &TerrainCoordinate), Changed<Heights>>,
+    mut query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &TerrainCoordinate, &mut Aabb), Changed<Heights>>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
     mut repaint_texture_events: EventWriter<TerrainMeshRebuilt>
 ) {
+    let tile_size = terrain_settings.tile_size();
+
     query
-        .iter()
-        .for_each(|(entity, heights, mesh_handle, terrain_coordinate)| {
+        .iter_mut()
+        .for_each(|(entity, heights, mesh_handle, terrain_coordinate, mut aabb)| {
             let neighbors = [
                 tile_to_terrain
                     .0
@@ -98,16 +99,15 @@ fn update_mesh_from_heights(
 
             repaint_texture_events.send(TerrainMeshRebuilt(terrain_coordinate.0));
 
-            /*commands.entity(entity).insert(Collider::heightfield(
-                heights.0.to_vec(),
-                terrain_settings.edge_points as usize,
-                terrain_settings.edge_points as usize,
-                Vec3::new(
-                    terrain_settings.tile_size(),
-                    1.0,
-                    terrain_settings.tile_size(),
-                ),
-            ));*/
+            let (min, max) = heights.0.iter().fold((f32::INFINITY, -f32::INFINITY), |(min, max), height| (min.min(*height), max.max(*height)));
+
+            let mid_point = (min + max) * 0.5;
+            let half_height_extents = (max - min) * 0.5;  
+
+            *aabb = Aabb {
+                center: Vec3A::new(tile_size / 2.0, mid_point, tile_size / 2.0),
+                half_extents: Vec3A::new(tile_size / 2.0, half_height_extents, tile_size / 2.0),
+            };
         });
 }
 

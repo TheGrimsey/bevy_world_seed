@@ -5,13 +5,13 @@ use bevy::{
     asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
     log::{info, info_span},
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey, StandardMaterial, PBR_PREPASS_SHADER_HANDLE},
+    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, StandardMaterial, PBR_PREPASS_SHADER_HANDLE},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, Shader, With, Without
     },
     reflect::Reflect,
     render::{
-        mesh::MeshVertexAttribute, render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat, VertexFormat}, texture::TextureFormatPixelInfo
+        mesh::MeshVertexAttribute, primitives::Aabb, render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat, VertexFormat}, texture::TextureFormatPixelInfo
     },
 };
 
@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
+pub const TERRAIN_VERTEX_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199676);
 
 pub struct TerrainTexturingPlugin(pub TerrainTexturingSettings);
 impl Plugin for TerrainTexturingPlugin {
@@ -36,12 +37,13 @@ impl Plugin for TerrainTexturingPlugin {
             .register_type::<GlobalTexturingRules>();
 
         
-        load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
+            load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
+            load_internal_asset!(app, TERRAIN_VERTEX_SHADER_HANDLE, "terrain.v.wgsl", Shader::from_wgsl);
 
         app.add_systems(
             PostUpdate,
             (
-                insert_texture_map,
+                insert_rendering_components,
                 update_terrain_texture_maps.after(TerrainSets::Modifiers),
             )
                 .chain(),
@@ -254,19 +256,15 @@ impl MaterialExtension for TerrainMaterial {
     }
 
     fn vertex_shader() -> ShaderRef {
-        TERRAIN_SHADER_HANDLE.into()
+        TERRAIN_VERTEX_SHADER_HANDLE.into()
     }
 
     fn prepass_vertex_shader() -> ShaderRef {
-        TERRAIN_SHADER_HANDLE.into()
-    }
-
-    fn prepass_fragment_shader() -> ShaderRef {
-        PBR_PREPASS_SHADER_HANDLE.into()
+        TERRAIN_VERTEX_SHADER_HANDLE.into()
     }
 
     fn deferred_vertex_shader() -> ShaderRef {
-        TERRAIN_SHADER_HANDLE.into()
+        TERRAIN_VERTEX_SHADER_HANDLE.into()
     }
 
     fn specialize(
@@ -277,7 +275,7 @@ impl MaterialExtension for TerrainMaterial {
         ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         let vertex_layout = layout.0.get_layout(&[
             ATTRIBUTE_HEIGHTS.at_shader_location(0),
-            Mesh::ATTRIBUTE_NORMAL.at_shader_location(1)
+            Mesh::ATTRIBUTE_NORMAL.at_shader_location(1),
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
         
@@ -296,7 +294,7 @@ impl MaterialExtension for TerrainMaterial {
 
 type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
 
-fn insert_texture_map(
+fn insert_rendering_components(
     terrain_settings: Res<TerrainSettings>,
     texture_settings: Res<TerrainTexturingSettings>,
     mut commands: Commands,
@@ -337,7 +335,10 @@ fn insert_texture_map(
             extension: material,
         });
 
-        commands.entity(entity).insert(material_handle);
+        commands.entity(entity).insert((
+            material_handle,
+            Aabb::default()
+        ));
     });
 }
 
