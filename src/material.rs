@@ -20,7 +20,7 @@ use bevy::{
 use crate::{
     distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
         Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
-    }, terrain::{TerrainCoordinate, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position}, Heights, TerrainSets, TerrainSettings
+    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position}, Heights, TerrainSets, TerrainSettings
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
@@ -299,7 +299,7 @@ fn update_terrain_texture_maps(
         &TerrainSplineCached,
         &TerrainSpline,
     )>,
-    tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &TerrainCoordinate)>,
+    tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &Terrain)>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,

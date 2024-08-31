@@ -2,8 +2,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::TerrainCoordinate, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
-
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -152,36 +151,29 @@ fn spawn_terrain(
         Name::new("Modifier (Rectangle)")
     ));
 
-    let size = terrain_settings.edge_points as usize * terrain_settings.edge_points as usize;
-    let flat_heights = vec![0.0; size].into_boxed_slice();
-
     commands.spawn((
-        TerrainCoordinate::default(),
-        Heights(flat_heights.clone()),
+        Terrain::default(),
         TransformBundle::default(),
         VisibilityBundle::default(),
         Name::new("Terrain")
     ));
 
     commands.spawn((
-        TerrainCoordinate::default(),
-        Heights(flat_heights.clone()),
+        Terrain::default(),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, 0.0))),
         VisibilityBundle::default(),
         Name::new("Terrain (1, 0))")
     ));
     
     commands.spawn((
-        TerrainCoordinate::default(),
-        Heights(flat_heights.clone()),
+        Terrain::default(),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(0.0, 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain (0, 1)")
     ));
     
     commands.spawn((
-        TerrainCoordinate::default(),
-        Heights(flat_heights),
+        Terrain::default(),
         TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
         VisibilityBundle::default(),
         Name::new("Terrain (1, 1)")

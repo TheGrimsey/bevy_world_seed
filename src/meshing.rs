@@ -6,7 +6,7 @@ use bevy::{
 };
 
 use crate::{
-    terrain::{TerrainCoordinate, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
+    terrain::{Holes, Terrain, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
 };
 
 pub struct TerrainMeshingPlugin;
@@ -35,7 +35,7 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &TerrainCoordinate), Changed<Heights>>,
+    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Terrain, &Holes), Changed<Heights>>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -43,7 +43,7 @@ fn update_mesh_from_heights(
 ) {
     query
         .iter()
-        .for_each(|(entity, heights, mesh_handle, terrain_coordinate)| {
+        .for_each(|(entity, heights, mesh_handle, terrain_coordinate, holes)| {
             let neighbors = [
                 tile_to_terrain
                     .0
@@ -76,6 +76,7 @@ fn update_mesh_from_heights(
                 terrain_settings.edge_points,
                 &heights.0,
                 &neighbors,
+                holes
             );
 
             if let Some(existing_mesh) = mesh_handle.and_then(|handle| meshes.get_mut(handle)) {
@@ -110,6 +111,7 @@ fn create_terrain_mesh(
     edge_length: u16,
     heights: &[f32],
     neighbours: &[Option<&[f32]>; 4],
+    holes: &Holes
 ) -> Mesh {
     assert_eq!(edge_length * edge_length, heights.len() as u16);
 
@@ -147,16 +149,23 @@ fn create_terrain_mesh(
 
         for z in 0..edge_length - 1 {
             for x in 0..edge_length - 1 {
+                let i = (z as usize * (edge_length as usize - 1) + x as usize) * 2;
+
                 let quad = z * edge_length + x;
-                indices.push(quad + edge_length + 1);
-                indices.push(quad + 1);
-                indices.push(quad + edge_length);
-                indices.push(quad);
-                indices.push(quad + edge_length);
-                indices.push(quad + 1);
+                
+                if !holes.0.contains(i + 1) {
+                    indices.push(quad + edge_length + 1);
+                    indices.push(quad + 1);
+                    indices.push(quad + edge_length);
+                }
+                
+                if !holes.0.contains(i) {
+                    indices.push(quad);
+                    indices.push(quad + edge_length);
+                    indices.push(quad + 1);    
+                }
             }
         }
-    
     
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
@@ -178,13 +187,21 @@ fn create_terrain_mesh(
 
         for z in 0..(edge_length - 1) as u32 {
             for x in 0..(edge_length - 1) as u32 {
+                let i = (z as usize * (edge_length as usize - 1) + x as usize) * 2;
+
                 let quad = z * edge_length as u32 + x;
-                indices.push(quad + edge_length as u32 + 1);
-                indices.push(quad + 1);
-                indices.push(quad + edge_length as u32);
-                indices.push(quad);
-                indices.push(quad + edge_length as u32);
-                indices.push(quad + 1);
+                
+                if !holes.0.contains(i + 1) {
+                    indices.push(quad + edge_length as u32 + 1);
+                    indices.push(quad + 1);
+                    indices.push(quad + edge_length as u32);
+                }
+
+                if !holes.0.contains(i) {
+                    indices.push(quad);
+                    indices.push(quad + edge_length as u32);
+                    indices.push(quad + 1);
+                }
             }
         }
     

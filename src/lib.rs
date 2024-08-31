@@ -13,7 +13,7 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSplineCurve, TerrainSplineCached, TerrainSpline, TerrainTileAabb, TileToModifierMapping};
-use terrain::{update_tiling, TerrainCoordinate, TileToTerrain};
+use terrain::{insert_components, update_tiling, Terrain, TileToTerrain};
 use utils::distance_to_line_segment;
 
 pub mod modifiers;
@@ -59,7 +59,10 @@ impl Plugin for TerrainPlugin {
         }
 
         app.add_systems(PostUpdate, (
-            update_tiling.before(update_terrain_heights),
+            (
+                insert_components,
+                update_tiling
+            ).before(update_terrain_heights),
             (
                 (
                     (
@@ -88,7 +91,7 @@ impl Plugin for TerrainPlugin {
             .register_type::<TerrainNoiseLayers>()
             .register_type::<TerrainTileAabb>()
             .register_type::<TerrainSpline>()
-            .register_type::<TerrainCoordinate>()
+            .register_type::<Terrain>()
             .register_type::<ShapeModifier>()
             .register_type::<ModifierOperation>()
             .register_type::<ModifierPriority>()
@@ -168,7 +171,7 @@ struct RebuildTile(IVec2);
 pub struct TileHeightsRebuilt(pub IVec2);
 
 #[derive(Component)]
-pub struct Heights(pub Box<[f32]>);
+struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
