@@ -4,7 +4,7 @@
 use std::num::NonZeroU8;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, Component, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectDefault, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
+    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectDefault, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
 };
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
@@ -12,8 +12,8 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
-use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSplineCurve, TerrainSplineCached, TerrainSpline, TerrainTileAabb, TileToModifierMapping};
-use terrain::{insert_components, update_tiling, Terrain, TileToTerrain};
+use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, HolePunchModifier, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb, TileToModifierMapping};
+use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::distance_to_line_segment;
 
 pub mod modifiers;
@@ -103,7 +103,7 @@ impl Plugin for TerrainPlugin {
 
 /// Cache of Simplex noise instances & which seeds they map to.
 #[derive(Default)]
-struct NoiseCache {
+pub struct NoiseCache {
     /// Seeds of the simplex noises.
     /// 
     /// These are separated from the noises for cache coherency. Simplex is a big struct.
@@ -126,40 +126,69 @@ impl NoiseCache {
 #[derive(Reflect, Clone)]
 #[reflect(Default)]
 pub struct TerrainNoiseLayer {
-    pub height_scale: f32,
-    pub planar_scale: f32,
+    /// Amplitude of the noise.
+    /// 
+    /// Increasing this increases the variance of terrain heights from this layer. 
+    pub amplitude: f32,
+    /// Scale of the noise on the XZ-plane. 
+    /// 
+    /// Increasing this causes the value to change quicker. Lower frequency means smoother changes in height.
+    pub frequency: f32,
+    /// Seed for the noise function.
     pub seed: u32,
 }
 impl TerrainNoiseLayer {
-    pub fn get(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
-        noise.get([(x * self.planar_scale) as f64, (z  * self.planar_scale) as f64]) as f32 * self.height_scale
+    /// Sample noise at the x & z coordinates.
+    /// 
+    /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
+    /// It is not contained within the noise layer to keep the size of a layer smaller.
+    pub fn sample(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        noise.get([(x * self.frequency) as f64, (z  * self.frequency) as f64]) as f32 * self.amplitude
     }
 }
 impl Default for TerrainNoiseLayer {
     fn default() -> Self {
-        Self { height_scale: 1.0, planar_scale: 1.0, seed: 1 }
+        Self { amplitude: 1.0, frequency: 1.0, seed: 1 }
     }
 }
 
+
+/// Noise layers to be applied to Terrain tiles.
 #[derive(Resource, Reflect, Clone, Default)]
 #[reflect(Resource)]
 pub struct TerrainNoiseLayers {
     pub layers: Vec<TerrainNoiseLayer>
 }
+impl TerrainNoiseLayers {
+    /// Samples noise height at the position.
+    /// 
+    /// Returns 0.0 if there are no noise layers.
+    pub fn sample_position(&self, noise_cache: &mut NoiseCache, pos: Vec2) -> f32 {
+        self.layers.iter().fold(0.0, |acc, layer| {
+            acc + layer.sample(pos.x, pos.y, noise_cache.get(layer.seed))
+        })
+    }
+}
 
 #[derive(Resource, Reflect, Clone)]
 #[reflect(Resource)]
 pub struct TerrainSettings {
+    /// The size of a tile on one side expressed as the power in a left-shift.
+    /// 
+    /// Ex. a value of `2` would be `1 << 2 == 4`.
+    /// 
+    /// This enforces the size of a tile to be a power of 2.
     pub tile_size_power: NonZeroU8,
     /// How many points are on one edge of a terrain tile.
     pub edge_points: u16,
+    /// The max amount of tile height updates to do per frame.
     pub max_tile_updates_per_frame: NonZeroU8,
     /// Points closer than this square distance are removed.
     pub max_spline_simplification_distance: f32,
 }
 impl TerrainSettings {
     pub fn tile_size(&self) -> f32 {
-        (1 << self.tile_size_power.get()) as f32
+        (1usize << self.tile_size_power.get()) as f32
     }
 }
 
@@ -175,9 +204,9 @@ struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    shape_modifier_query: Query<(&ShapeModifier, &ModifierProperties, &ModifierOperation, &GlobalTransform)>,
+    shape_modifier_query: Query<(&ShapeModifier, &ModifierProperties, AnyOf<(&ModifierOperation, &HolePunchModifier)>, &GlobalTransform)>,
     spline_query: Query<(&TerrainSplineCached, &TerrainSpline)>,
-    mut heights: Query<&mut Heights>,
+    mut heights: Query<(&mut Heights, &mut Holes)>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -211,9 +240,10 @@ fn update_terrain_heights(
         let splines = tile_to_modifier.splines.get(&tile);
 
         let mut iter = heights.iter_many_mut(tiles.iter());
-        while let Some(mut heights) = iter.fetch_next() {
+        while let Some((mut heights, mut holes)) = iter.fetch_next() {
             // Clear heights.
             heights.0.fill(0.0);
+            holes.0.clear();
     
             // First, set by noise.
             if !terrain_noise_layers.layers.is_empty() {
@@ -224,9 +254,7 @@ fn update_terrain_heights(
                     
                     let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
         
-                    for noise_layer in terrain_noise_layers.layers.iter() {
-                        *val += noise_layer.get(vertex_position.x, vertex_position.y, noise_cache.get(noise_layer.seed));
-                    }
+                    *val += terrain_noise_layers.sample_position(&mut noise_cache, vertex_position);
                 }
             }
     
@@ -235,7 +263,7 @@ fn update_terrain_heights(
                 let _span = info_span!("Apply shape modifiers").entered();
                 
                 for entry in shapes.iter() {
-                    if let Ok((modifier, modifier_properties, operation, global_transform)) = shape_modifier_query.get(entry.entity) {
+                    if let Ok((modifier, modifier_properties, (operation, hole_punch), global_transform)) = shape_modifier_query.get(entry.entity) {
                         let shape_translation = global_transform.translation().xz();
                         
                         match modifier.shape {
@@ -255,7 +283,12 @@ fn update_terrain_heights(
                                 
                                     let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0);
                                 
-                                    *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
+                                    if let Some(operation) = operation {
+                                        *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
+                                    }
+                                    if let Some(hole_punch) = hole_punch.filter(|_| strength >= 1.0) {
+                                        holes.0.set(i, !hole_punch.invert);
+                                    }
                                 }
                             },
                             Shape::Rectangle { x, z } => {
@@ -282,7 +315,12 @@ fn update_terrain_heights(
                                 
                                     let strength = 1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0);
                                 
-                                    *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
+                                    if let Some(operation) = operation {
+                                        *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
+                                    }
+                                    if let Some(hole_punch) = hole_punch.filter(|_| strength >= 1.0) {
+                                        holes.0.set(i, !hole_punch.invert);
+                                    }
                                 }
                             },
                         }
@@ -358,7 +396,7 @@ fn apply_modifier(modifier_properties: &ModifierProperties, operation: &Modifier
             val.lerp((((val / *step) * smoothing).round() / smoothing) * *step , strength)
         },
         ModifierOperation::Noise { noise } => {
-            val.lerp(noise.get(vertex_position.x, vertex_position.y, noise_cache.get(noise.seed)), strength)
+            val.lerp(noise.sample(vertex_position.x, vertex_position.y, noise_cache.get(noise.seed)), strength)
         },
     };
 

@@ -1,7 +1,6 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
-        mesh::{Indices, PrimitiveTopology},
-        render_asset::RenderAssetUsages,
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3, Vec3A}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
+        mesh::{Indices, PrimitiveTopology}, primitives::Aabb, render_asset::RenderAssetUsages
     }
 };
 
@@ -35,15 +34,17 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Terrain, &Holes), Changed<Heights>>,
+    mut query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Terrain, &Holes, &mut Aabb), Changed<Heights>>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
     mut repaint_texture_events: EventWriter<TerrainMeshRebuilt>
 ) {
+    let tile_size = terrain_settings.tile_size();
+    
     query
-        .iter()
-        .for_each(|(entity, heights, mesh_handle, terrain_coordinate, holes)| {
+        .iter_mut()
+        .for_each(|(entity, heights, mesh_handle, terrain_coordinate, holes, mut aabb)| {
             let neighbors = [
                 tile_to_terrain
                     .0
@@ -89,16 +90,15 @@ fn update_mesh_from_heights(
 
             repaint_texture_events.send(TerrainMeshRebuilt(terrain_coordinate.0));
 
-            /*commands.entity(entity).insert(Collider::heightfield(
-                heights.0.to_vec(),
-                terrain_settings.edge_points as usize,
-                terrain_settings.edge_points as usize,
-                Vec3::new(
-                    terrain_settings.tile_size(),
-                    1.0,
-                    terrain_settings.tile_size(),
-                ),
-            ));*/
+            let (min, max) = heights.0.iter().fold((f32::INFINITY, -f32::INFINITY), |(min, max), height| (min.min(*height), max.max(*height)));
+
+            let mid_point = (min + max) * 0.5;
+            let half_height_extents = (max - min) * 0.5;  
+
+            *aabb = Aabb {
+                center: Vec3A::new(tile_size / 2.0, mid_point, tile_size / 2.0),
+                half_extents: Vec3A::new(tile_size / 2.0, half_height_extents, tile_size / 2.0),
+            };
         });
 }
 
@@ -149,20 +149,22 @@ fn create_terrain_mesh(
 
         for z in 0..edge_length - 1 {
             for x in 0..edge_length - 1 {
-                let i = (z as usize * (edge_length as usize - 1) + x as usize) * 2;
-
                 let quad = z * edge_length + x;
-                
-                if !holes.0.contains(i + 1) {
-                    indices.push(quad + edge_length + 1);
-                    indices.push(quad + 1);
-                    indices.push(quad + edge_length);
+                let a = quad;
+                let b = quad + edge_length;
+                let c = quad + edge_length + 1;
+                let d = quad + 1;
+
+                if !holes.0.contains(c.into()) && !holes.0.contains(d.into()) && !holes.0.contains(b.into()) {
+                    indices.push(c);
+                    indices.push(d);
+                    indices.push(b);
                 }
                 
-                if !holes.0.contains(i) {
-                    indices.push(quad);
-                    indices.push(quad + edge_length);
-                    indices.push(quad + 1);    
+                if !holes.0.contains(a.into()) && !holes.0.contains(b.into()) && !holes.0.contains(d.into()) {
+                    indices.push(a);
+                    indices.push(b);
+                    indices.push(d);    
                 }
             }
         }
@@ -187,20 +189,22 @@ fn create_terrain_mesh(
 
         for z in 0..(edge_length - 1) as u32 {
             for x in 0..(edge_length - 1) as u32 {
-                let i = (z as usize * (edge_length as usize - 1) + x as usize) * 2;
-
                 let quad = z * edge_length as u32 + x;
-                
-                if !holes.0.contains(i + 1) {
-                    indices.push(quad + edge_length as u32 + 1);
-                    indices.push(quad + 1);
-                    indices.push(quad + edge_length as u32);
-                }
+                let a = quad;
+                let b = quad + edge_length as u32;
+                let c = quad + edge_length as u32 + 1;
+                let d = quad + 1;
 
-                if !holes.0.contains(i) {
-                    indices.push(quad);
-                    indices.push(quad + edge_length as u32);
-                    indices.push(quad + 1);
+                if !holes.0.contains(c as usize) && !holes.0.contains(d as usize) && !holes.0.contains(b as usize) {
+                    indices.push(c);
+                    indices.push(d);
+                    indices.push(b);
+                }
+                
+                if !holes.0.contains(a as usize) && !holes.0.contains(b as usize) && !holes.0.contains(d as usize) {
+                    indices.push(a);
+                    indices.push(b);
+                    indices.push(d);    
                 }
             }
         }

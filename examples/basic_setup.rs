@@ -2,7 +2,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifier, TexturingRule, TexturingRuleEvaluator}, modifiers::{HolePunchModifier, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -15,12 +15,12 @@ fn main() {
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseLayers {
             layers: vec![
-                TerrainNoiseLayer { height_scale: 6.0, planar_scale: 1.0 / 30.0, seed: 1 }
+                TerrainNoiseLayer { amplitude: 6.0, frequency: 1.0 / 30.0, seed: 1 }
             ],
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(5).unwrap(),
-            edge_points: 65,
+            edge_points: 33,
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
             max_spline_simplification_distance: 3.0
         },
@@ -113,16 +113,39 @@ fn spawn_terrain(
                 allow_lowering: true,
                 allow_raising: true
             },
-            operation: ModifierOperation::Set,
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
         },
+        ModifierOperation::Set,
         TextureModifier {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
             max_strength: 0.95,
             tiling_factor: 2.0
         },
         Name::new("Modifier (Circle)")
+    ));
+
+    
+    commands.spawn((
+        ShapeModifierBundle {
+            aabb: TerrainTileAabb::default(),
+            modifier: ShapeModifier {
+                shape: Shape::Circle {
+                    radius: 2.9
+                },
+                falloff: 4.0,
+            },
+            properties: ModifierProperties {
+                allow_lowering: true,
+                allow_raising: true
+            },
+            priority: ModifierPriority(1),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(40.0, 2.0, 6.0))),
+        },
+        HolePunchModifier {
+            invert: false
+        },
+        Name::new("Modifier (Circle Hole)")
     ));
 
     commands.spawn((
@@ -139,10 +162,10 @@ fn spawn_terrain(
                 allow_lowering: true,
                 allow_raising: true
             },
-            operation: ModifierOperation::Set,
             priority: ModifierPriority(2),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
         },
+        ModifierOperation::Set,
         TextureModifier {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
             max_strength: 0.95,

@@ -20,14 +20,15 @@ fn main() {
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseLayers {
             layers: vec![
-                TerrainNoiseLayer { height_scale: 2.0, planar_scale: 1.0 / 40.0, seed: 1 },
-                TerrainNoiseLayer { height_scale: 8.0, planar_scale: 1.0 / 60.0, seed: 3 }
+                TerrainNoiseLayer { amplitude: 8.0, frequency: 0.01, seed: 3 },
+                TerrainNoiseLayer { amplitude: 4.0, frequency: 0.02, seed: 1 },
+                TerrainNoiseLayer { amplitude: 2.0, frequency: 0.04, seed: 2 },
             ],
         }),
         terrain_settings: TerrainSettings {
-            tile_size_power: NonZeroU8::new(5).unwrap(),
+            tile_size_power: NonZeroU8::new(6).unwrap(),
             edge_points: 65,
-            max_tile_updates_per_frame: NonZeroU8::new(4).unwrap(),
+            max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
             max_spline_simplification_distance: 3.0
         },
         texturing_settings: TerrainTexturingSettings {
@@ -76,7 +77,7 @@ fn spawn_terrain(
         ..default()
     });
 
-    let terrain_range = 20;
+    let terrain_range = 15;
 
     for x in -terrain_range..terrain_range {
         for z in -terrain_range..terrain_range {

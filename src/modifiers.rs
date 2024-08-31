@@ -14,7 +14,6 @@ use crate::{RebuildTile, TerrainNoiseLayer, TerrainSettings};
 pub struct ShapeModifierBundle {
     pub aabb: TerrainTileAabb,
     pub modifier: ShapeModifier,
-    pub operation: ModifierOperation,
     pub properties: ModifierProperties,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
@@ -58,6 +57,13 @@ pub enum ModifierOperation {
     Noise {
         noise: TerrainNoiseLayer,
     },
+}
+
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct HolePunchModifier {
+    /// When true, fill in holes instead of creating them.
+    pub invert: bool
 }
 
 #[derive(Bundle)]

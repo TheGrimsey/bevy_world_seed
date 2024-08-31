@@ -11,9 +11,7 @@ use bevy::{
     },
     reflect::Reflect,
     render::{
-        render_asset::RenderAssetUsages,
-        render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
-        texture::TextureFormatPixelInfo,
+        primitives::Aabb, render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo
     },
 };
 
@@ -288,7 +286,10 @@ fn insert_texture_map(
             extension: material
         });
 
-        commands.entity(entity).insert(material_handle);
+        commands.entity(entity).insert((
+            material_handle,
+            Aabb::default()
+        ));
     });
 }
 
