@@ -364,6 +364,7 @@ fn update_terrain_texture_maps(
                         info!("Hit max texture channels.");
                         return;
                     };
+                    let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
 
                     for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                         let x = i % resolution as usize;
@@ -395,7 +396,6 @@ fn update_terrain_texture_maps(
                             z_f - z_f.round(),
                         )};
 
-                        let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
                         let normal_at_position = unsafe { get_normal_at_position(
                             (*normals.get_unchecked(vertex_a)).into(),
                             (*normals.get_unchecked(vertex_b)).into(),
@@ -404,7 +404,7 @@ fn update_terrain_texture_maps(
                             local_x,
                             local_z,
                         )};
-                        let normal_angle = normal_at_position.dot(Vec3::Y).acos();
+                        let normal_angle = normal_at_position.normalize().dot(Vec3::Y).acos();
 
                         let strength = rule.evaluator.eval(height_at_position, normal_angle);
 
