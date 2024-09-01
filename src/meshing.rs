@@ -136,7 +136,7 @@ fn create_terrain_mesh(
             uvs.push([tx, tz]);
         }
     }
-
+    
     // Generate normals
     let mut normals = vec![Vec3::ZERO; positions.len()];
     let mut adjacency_counts = vec![0_u8; positions.len()];
@@ -204,11 +204,10 @@ fn create_terrain_mesh(
                 if !holes.0.contains(a as usize) && !holes.0.contains(b as usize) && !holes.0.contains(d as usize) {
                     indices.push(a);
                     indices.push(b);
-                    indices.push(d);    
+                    indices.push(d);
                 }
             }
         }
-    
     
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];

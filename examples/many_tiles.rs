@@ -47,7 +47,8 @@ fn main() {
 fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleGreaterThan {
-            angle_radians: 40.0_f32.to_radians()
+            angle_radians: 40.0_f32.to_radians(),
+            falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
         tiling_factor: 2.0
@@ -55,7 +56,8 @@ fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server:
     
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleLessThan {
-            angle_radians: 40.0_f32.to_radians()
+            angle_radians: 40.0_f32.to_radians(),
+            falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
         tiling_factor: 1.0

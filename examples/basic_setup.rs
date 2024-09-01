@@ -20,12 +20,12 @@ fn main() {
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(5).unwrap(),
-            edge_points: 33,
+            edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
             max_spline_simplification_distance: 3.0
         },
         texturing_settings: TerrainTexturingSettings {
-            texture_resolution_power: 6,
+            texture_resolution_power: 7,
             max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
         },
         debug_draw: true
@@ -40,15 +40,17 @@ fn main() {
 fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleGreaterThan {
-            angle_radians: 40.0_f32.to_radians()
+            angle_radians: 40.0_f32.to_radians(),
+            falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-        tiling_factor: 2.0
+        tiling_factor: 4.0
     });
     
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleLessThan {
-            angle_radians: 40.0_f32.to_radians()
+            angle_radians: 40.0_f32.to_radians(),
+            falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
         tiling_factor: 1.0

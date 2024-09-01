@@ -96,16 +96,18 @@ pub enum TexturingRuleEvaluator {
     },
     AngleGreaterThan {
         angle_radians: f32,
+        falloff_radians: f32,
     },
     AngleLessThan {
         angle_radians: f32,
+        falloff_radians: f32,
     }
 }
 impl TexturingRuleEvaluator {
     pub fn eval(&self, height_at_position: f32, angle: f32) -> f32 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
-                1.0 - ((height - height_at_position).max(0.0) / falloff).clamp(0.0, 1.0)
+                1.0 - ((height_at_position - height).max(0.0) / falloff).clamp(0.0, 1.0)
             }
             TexturingRuleEvaluator::Below { height, falloff } => {
                 1.0 - ((height - height_at_position).max(0.0) / falloff).clamp(0.0, 1.0)
@@ -120,19 +122,11 @@ impl TexturingRuleEvaluator {
                 
                 strength_below.min(strength_above)
             },
-            TexturingRuleEvaluator::AngleGreaterThan { angle_radians } => {
-                if angle >= *angle_radians {
-                    1.0
-                } else {
-                    0.0
-                }
+            TexturingRuleEvaluator::AngleGreaterThan { angle_radians, falloff_radians } => {
+                1.0 - ((angle_radians - angle).max(0.0) / falloff_radians).clamp(0.0, 1.0)
             },
-            TexturingRuleEvaluator::AngleLessThan { angle_radians } => {
-                if angle < *angle_radians {
-                    1.0
-                } else {
-                    0.0
-                }
+            TexturingRuleEvaluator::AngleLessThan { angle_radians, falloff_radians } => {
+                1.0 - ((angle - angle_radians).max(0.0) / falloff_radians).clamp(0.0, 1.0)
             },
         }
     }
