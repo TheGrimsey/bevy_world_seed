@@ -4,7 +4,7 @@
 use std::num::NonZeroU8;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectDefault, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
+    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectDefault, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
 };
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
@@ -199,8 +199,8 @@ struct RebuildTile(IVec2);
 #[derive(Event)]
 pub struct TileHeightsRebuilt(pub IVec2);
 
-#[derive(Component)]
-struct Heights(Box<[f32]>);
+#[derive(Component, Deref)]
+pub struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,

@@ -1,7 +1,7 @@
 use bevy::{
     math::{IVec2, Vec3Swizzles},
     prelude::{
-        Changed, Commands, Component, DetectChanges, Entity, EventWriter, GlobalTransform, Query, ReflectComponent, Res, ResMut, Resource, With, Without
+        Changed, Commands, Component, Deref, DetectChanges, Entity, EventWriter, GlobalTransform, Query, ReflectComponent, Res, ResMut, Resource, With, Without
     },
     reflect::Reflect,
     utils::HashMap,
@@ -14,14 +14,40 @@ use crate::{Heights, RebuildTile, TerrainSettings};
 /// Size should equal the amount of vertices in a terrain tile.
 #[derive(Component, Debug)]
 pub struct Holes(pub(super) FixedBitSet);
+impl Holes {
+    /// Returns an iterator of every hole in the terrain.
+    /// 
+    /// This can be used to set the holes in a Heightfield.
+    pub fn iter_holes(&self, edge_points: u16) -> impl Iterator<Item = HoleEntry> + '_ {
+        self.0.ones().map(move |i| {
+            let i = i / 2;
+
+            let x = i % edge_points as usize;
+            let z = i / edge_points as usize;
+
+            HoleEntry {
+                x,
+                z,
+                is_left: i % 2 == 0
+            }
+        })
+    }
+}
+
+pub struct HoleEntry {
+    pub x: usize,
+    pub z: usize,
+    pub is_left: bool
+}
 
 #[derive(Component, Reflect, Debug, Default)]
 #[reflect(Component)]
 pub struct Terrain(pub(super) IVec2);
 
-/// Using a Vec<Entity> to prevent accidental overlaps from breaking the previous tile.
-#[derive(Resource, Default)]
-pub(super) struct TileToTerrain(pub(super) HashMap<IVec2, Vec<Entity>>);
+/// Mapping tile coordinate to all terrain tiles on that tile.
+// Using a Vec<Entity> to prevent accidental overlaps from breaking the previous tile.
+#[derive(Resource, Default, Deref)]
+pub struct TileToTerrain(pub(super) HashMap<IVec2, Vec<Entity>>);
 
 pub(super) fn insert_components(
     mut commands: Commands,

@@ -1,11 +1,11 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3, Vec3A}, prelude::{Changed, Commands, Entity, Event, EventWriter, IntoSystemConfigs, Mesh, Query, Res, ResMut}, render::{
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, math::{IVec2, Vec3, Vec3A}, prelude::{Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Mesh, Query, Res, ResMut}, render::{
         mesh::{Indices, PrimitiveTopology}, primitives::Aabb, render_asset::RenderAssetUsages
     }
 };
 
 use crate::{
-    terrain::{Holes, Terrain, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings
+    terrain::{Holes, TileToTerrain}, update_terrain_heights, Heights, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct TerrainMeshingPlugin;
@@ -34,44 +34,76 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Terrain, &Holes, &mut Aabb), Changed<Heights>>,
+    mut query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Holes, &mut Aabb)>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
+    mut tile_generate_queue: Local<Vec<IVec2>>,
+    mut tile_rebuilt_events: EventReader<TileHeightsRebuilt>,
     mut repaint_texture_events: EventWriter<TerrainMeshRebuilt>
 ) {
-    let tile_size = terrain_settings.tile_size();
-    
-    query
-        .iter_mut()
-        .for_each(|(entity, heights, mesh_handle, terrain_coordinate, holes, mut aabb)| {
-            let neighbors = [
-                tile_to_terrain
-                    .0
-                    .get(&(terrain_coordinate.0 - IVec2::X))
-                    .and_then(|entries| entries.first())
-                    .and_then(|entity| heights_query.get(*entity).ok())
-                    .map(|heights| heights.0.as_ref()),
-                tile_to_terrain
-                    .0
-                    .get(&(terrain_coordinate.0 + IVec2::X))
-                    .and_then(|entries| entries.first())
-                    .and_then(|entity| heights_query.get(*entity).ok())
-                    .map(|heights| heights.0.as_ref()),
-                tile_to_terrain
-                    .0
-                    .get(&(terrain_coordinate.0 - IVec2::Y))
-                    .and_then(|entries| entries.first())
-                    .and_then(|entity| heights_query.get(*entity).ok())
-                    .map(|heights| heights.0.as_ref()),
-                tile_to_terrain
-                    .0
-                    .get(&(terrain_coordinate.0 + IVec2::Y))
-                    .and_then(|entries| entries.first())
-                    .and_then(|entity| heights_query.get(*entity).ok())
-                    .map(|heights| heights.0.as_ref()),
-            ];
+    for TileHeightsRebuilt(tile) in tile_rebuilt_events.read() {
+        if !tile_generate_queue.contains(tile) {
+            tile_generate_queue.push(*tile);
+        }
+        
+        // Queue neighbors as well to make sure normals are correct at the edges.
+        let neighbors = [
+            *tile - IVec2::X,
+            *tile + IVec2::X,
+            *tile - IVec2::Y,
+            *tile + IVec2::Y
+        ];
 
+        for neighbor in neighbors.into_iter() {  
+            if !tile_generate_queue.contains(&neighbor) {
+                tile_generate_queue.push(neighbor);
+            }
+        }
+    }
+
+    if tile_generate_queue.is_empty() {
+        return;
+    }
+    let tile_size = terrain_settings.tile_size();
+
+    let tiles_to_generate = tile_generate_queue.len().min(terrain_settings.max_tile_updates_per_frame.get() as usize);
+    
+    for tile in tile_generate_queue.drain(..tiles_to_generate) {
+        let Some(tiles) = tile_to_terrain.0.get(&tile) else {
+            continue;
+        };
+
+        let mut iter = query.iter_many_mut(tiles.iter());
+        
+        let neighbors = [
+            tile_to_terrain
+                .0
+                .get(&(tile - IVec2::X))
+                .and_then(|entries| entries.first())
+                .and_then(|entity| heights_query.get(*entity).ok())
+                .map(|heights| heights.0.as_ref()),
+            tile_to_terrain
+                .0
+                .get(&(tile + IVec2::X))
+                .and_then(|entries| entries.first())
+                .and_then(|entity| heights_query.get(*entity).ok())
+                .map(|heights| heights.0.as_ref()),
+            tile_to_terrain
+                .0
+                .get(&(tile - IVec2::Y))
+                .and_then(|entries| entries.first())
+                .and_then(|entity| heights_query.get(*entity).ok())
+                .map(|heights| heights.0.as_ref()),
+            tile_to_terrain
+                .0
+                .get(&(tile + IVec2::Y))
+                .and_then(|entries| entries.first())
+                .and_then(|entity| heights_query.get(*entity).ok())
+                .map(|heights| heights.0.as_ref()),
+        ];
+
+        while let Some((entity, heights, mesh_handle, holes, mut aabb)) = iter.fetch_next() {
             let mesh = create_terrain_mesh(
                 terrain_settings.tile_size(),
                 terrain_settings.edge_points,
@@ -88,8 +120,6 @@ fn update_mesh_from_heights(
                 commands.entity(entity).insert((new_handle,));
             }
 
-            repaint_texture_events.send(TerrainMeshRebuilt(terrain_coordinate.0));
-
             let (min, max) = heights.0.iter().fold((f32::INFINITY, -f32::INFINITY), |(min, max), height| (min.min(*height), max.max(*height)));
 
             let mid_point = (min + max) * 0.5;
@@ -99,7 +129,10 @@ fn update_mesh_from_heights(
                 center: Vec3A::new(tile_size / 2.0, mid_point, tile_size / 2.0),
                 half_extents: Vec3A::new(tile_size / 2.0, half_height_extents, tile_size / 2.0),
             };
-        });
+        }
+        
+        repaint_texture_events.send(TerrainMeshRebuilt(tile));
+    }
 }
 
 fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
@@ -233,6 +266,25 @@ fn create_terrain_mesh(
 
     // -X direction.
     if let Some(neighbors) = neighbours[0] {
+        // Corner
+        {
+            let x = 0;
+            let s = positions[x];
+
+            let a_i = x + edge_length as usize;
+            let a = Vec3::new(s.x, heights[a_i], s.z + step);
+            let b_i = x + (edge_length as usize * 2) - 2;
+            let b = Vec3::new(s.x - step, neighbors[b_i], s.z + step);
+            let c_i = x + edge_length as usize - 2;
+            let c = Vec3::new(s.x - step, neighbors[c_i], s.z);
+            
+            let face_a = face_normal(b, a, s);
+            let face_b = face_normal(c, b, s);
+            
+            adjacency_counts[x] += 2;
+            normals[x] += face_a + face_b;
+        }
+
         // Ignoring corners.
         for x in (0..(num_vertices - edge_length as usize))
             .skip(edge_length.into())

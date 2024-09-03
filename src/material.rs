@@ -247,7 +247,7 @@ fn insert_texture_map(
     mut commands: Commands,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
-    query: Query<Entity, (With<Heights>, Without<Handle<TerrainMaterialExtended>>)>,
+    query: Query<Entity, (With<Terrain>, Without<Handle<TerrainMaterialExtended>>)>
 ) {
     let resolution = texture_settings.resolution();
     let texture_format = TextureFormat::Rgba8Unorm;
