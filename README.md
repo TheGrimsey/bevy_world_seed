@@ -36,7 +36,7 @@ This crate does not include colliders as managing different versions of physics 
 - [ ] Modifier strength multiplier
 *Additional component that allows you to affect the strength, i.e reduce the strength so that instead of pulling to match modifiers it goes 50% toward modifier, flattening the area without making it completely flat.* 
 
-- [ ] Holes!
+- [X] Holes!
 
 *Terrain needs holes so you can move into caves and stuff.*
 
@@ -44,4 +44,4 @@ This crate does not include colliders as managing different versions of physics 
 
 - [ ] Switch from normal Mesh to one only containing normals, heights at points, and holes.
 
-*Since all terrains are the same grid, we don't need to recreate the same triangles all the time, only modify the height.*
+*Since all terrains are the same grid, we don't need to recreate the same triangles all the time, only modify the height. This was attempted in the `vertex-format-experiments` branch with minor success*
