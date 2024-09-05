@@ -68,3 +68,11 @@ fn closest_normal_in_triangle(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32) -> Vec3
     // Return the interpolated height based on barycentric coordinates
     a * u + b * v + c * w
 }
+
+#[inline]
+pub fn index_to_x_z(index: usize, edge_points: usize) -> (usize, usize) {
+    let x = index % edge_points;
+    let z = index / edge_points;
+
+    (x,z)
+}

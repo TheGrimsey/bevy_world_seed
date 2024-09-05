@@ -5,7 +5,7 @@ This uses a spline to flatten terrain (as one would with a road). The terrain he
 
 ## Collision
 
-This crate does not include colliders as managing different versions of physics crates is a headache.
+This crate does not include colliders as managing different versions of physics crates is a headache. For an example of how to add colliders for crates using Parry3d (Rapier & Avian), see `terrain_collider` example.
 
 ## TODO
 

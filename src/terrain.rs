@@ -8,36 +8,65 @@ use bevy::{
 };
 use fixedbitset::FixedBitSet;
 
-use crate::{Heights, RebuildTile, TerrainSettings};
+use crate::{utils::index_to_x_z, Heights, RebuildTile, TerrainSettings};
 
 /// Bitset marking which points are holes.
 /// Size should equal the amount of vertices in a terrain tile.
 #[derive(Component, Debug)]
 pub struct Holes(pub(super) FixedBitSet);
 impl Holes {
-    /// Returns an iterator of every hole in the terrain.
+    /// Returns an iterator of every hole cell in the terrain.
     /// 
-    /// This can be used to set the holes in a Heightfield.
+    /// Cells may be returned multiple times.
+    /// 
+    /// This can be used to set the holes in a parry Heightfield.
     pub fn iter_holes(&self, edge_points: u16) -> impl Iterator<Item = HoleEntry> + '_ {
-        self.0.ones().map(move |i| {
-            let i = i / 2;
+        self.0.ones().flat_map(move |i| {
+            let (x, z) = index_to_x_z(i, edge_points as usize);
 
-            let x = i % edge_points as usize;
-            let z = i / edge_points as usize;
-
-            HoleEntry {
-                x,
-                z,
-                is_left: i % 2 == 0
-            }
+            [
+                Some(HoleEntry {
+                    x: x as u16,
+                    z: z as u16,
+                    left_triangle_removed: true,
+                    right_triangle_removed: false
+                }),
+                (x > 0).then(|| 
+                    HoleEntry {
+                        x: (x - 1) as u16,
+                        z: z as u16,
+                        left_triangle_removed: true,
+                        right_triangle_removed: true
+                    }
+                ),
+                (x > 0 && z > 0).then(|| 
+                    HoleEntry {
+                        x: (x - 1) as u16,
+                        z: (z - 1) as u16,
+                        left_triangle_removed: false,
+                        right_triangle_removed: true
+                    }
+                ),
+                (z > 0).then(|| 
+                    HoleEntry {
+                        x: x as u16,
+                        z: (z - 1) as u16,
+                        left_triangle_removed: true,
+                        right_triangle_removed: true
+                    }
+                ),
+                
+            ].into_iter().flatten()
         })
     }
 }
 
+#[derive(Debug)]
 pub struct HoleEntry {
-    pub x: usize,
-    pub z: usize,
-    pub is_left: bool
+    pub x: u16,
+    pub z: u16,
+    pub left_triangle_removed: bool,
+    pub right_triangle_removed: bool
 }
 
 #[derive(Component, Reflect, Debug, Default)]

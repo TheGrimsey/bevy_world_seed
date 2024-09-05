@@ -1,9 +1,9 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
-use bevy::{app::{App, Startup}, asset::{AssetMode, AssetPlugin}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, BuildChildren, Commands, Component, Entity, EventReader, PluginGroup, Query, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup, Update}, asset::{AssetMode, AssetPlugin}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, on_event, BuildChildren, Commands, Component, Entity, EventReader, IntoSystemConfigs, PluginGroup, Query, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_rapier3d::{parry::shape::{HeightField, HeightFieldCellStatus, SharedShape}, prelude::Collider};
-use bevy_terrain_test::{material::TerrainTexturingSettings, terrain::{Holes, Terrain, TileToTerrain}, Heights, TerrainNoiseLayers, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
+use bevy_rapier3d::{parry::shape::{HeightField, HeightFieldCellStatus, SharedShape}, plugin::{NoUserData, RapierPhysicsPlugin}, prelude::Collider, render::RapierDebugRenderPlugin};
+use bevy_terrain_test::{material::TerrainTexturingSettings, modifiers::{HolePunchModifier, ModifierPriority, ModifierProperties, Shape, ShapeModifier, ShapeModifierBundle, TerrainTileAabb}, terrain::{Holes, Terrain, TileToTerrain}, utils::index_to_x_z, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
 
 
 fn main() {
@@ -15,17 +15,20 @@ fn main() {
             ..default()
         }),
         EditorPlugin::default(),
-        FrameTimeDiagnosticsPlugin
+        FrameTimeDiagnosticsPlugin,
+        RapierPhysicsPlugin::<NoUserData>::default(),
+        RapierDebugRenderPlugin::default(),
     ));
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseLayers {
             layers: vec![
+                TerrainNoiseLayer { amplitude: 4.0, frequency: 1.0 / 30.0, seed: 2 }
             ],
         }),
         terrain_settings: TerrainSettings {
-            tile_size_power: NonZeroU8::new(7).unwrap(),
-            edge_points: 129,
+            tile_size_power: NonZeroU8::new(6).unwrap(),
+            edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
             max_spline_simplification_distance: 3.0
         },
@@ -37,6 +40,8 @@ fn main() {
     });
 
     app.add_systems(Startup, spawn_terrain);
+
+    app.add_systems(Update, update_heightfield.run_if(on_event::<TileHeightsRebuilt>()));
 
     app.run();
 }
@@ -72,17 +77,30 @@ fn update_heightfield(
                 collider_entity
             };
 
-            let heights = bevy_rapier3d::na::DMatrix::from_vec(terrain_settings.edge_points.into(), terrain_settings.edge_points.into(), heights.to_vec());
+            // Heightfield expects a row to be progressing on Z. But the mesh is laid out with row on X.
+            // So we need to rotate the heights.
+            let mut rotated_heights = vec![0.0; heights.len()];
+            for (i, height) in heights.iter().enumerate() {
+                let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
 
+                let new_i = x * terrain_settings.edge_points as usize + z;
+                rotated_heights[new_i] = *height;
+            }
+
+            let heights = bevy_rapier3d::na::DMatrix::from_vec(terrain_settings.edge_points.into(), terrain_settings.edge_points.into(), rotated_heights);
+            
             let mut collider = HeightField::new(heights, Vec3::new(tile_size, 1.0, tile_size).into());
 
             for hole in holes.iter_holes(terrain_settings.edge_points) {
-                let cell_status = &mut collider.cells_statuses_mut()[(hole.x, hole.z)];
-
-                if hole.is_left {
-                    cell_status.set(HeightFieldCellStatus::LEFT_TRIANGLE_REMOVED, true);
-                } else {
-                    cell_status.set(HeightFieldCellStatus::RIGHT_TRIANGLE_REMOVED, true);    
+                // Hole z & x are reversed from what you may expect.
+                let cell_status = &mut collider.cells_statuses_mut()[(hole.z as usize, hole.x as usize)];
+                
+                // We aren't overwriting the cell status completely because cells may be returned multiple times. 
+                if hole.left_triangle_removed {
+                    *cell_status |= HeightFieldCellStatus::LEFT_TRIANGLE_REMOVED;
+                }
+                if hole.right_triangle_removed {
+                    *cell_status |= HeightFieldCellStatus::RIGHT_TRIANGLE_REMOVED;    
                 }
             }
 
@@ -93,8 +111,25 @@ fn update_heightfield(
 
 fn spawn_terrain(
     mut commands: Commands,
-    terrain_settings: Res<TerrainSettings>,
 ) {
+    
+    commands.spawn((
+        ShapeModifierBundle {
+            aabb: TerrainTileAabb::default(),
+            modifier: ShapeModifier {
+                shape: Shape::Circle {
+                    radius: 2.9
+                },
+                falloff: 4.0,
+            },
+            properties: ModifierProperties::default(),
+            priority: ModifierPriority(1),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(40.0, 2.0, 6.0))),
+        },
+        HolePunchModifier::default(),
+        Name::new("Modifier (Circle Hole)")
+    ));
+    
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             color: Color::WHITE,
@@ -106,16 +141,10 @@ fn spawn_terrain(
         ..default()
     });
 
-    let terrain_range = 2;
-
-    for x in -terrain_range..terrain_range {
-        for z in -terrain_range..terrain_range {
-            commands.spawn((
-                Terrain::default(),
-                TransformBundle::from_transform(Transform::from_translation(Vec3::new(x as f32 * terrain_settings.tile_size(), 0.0,  z as f32 * terrain_settings.tile_size()))),
-                VisibilityBundle::default(),
-                Name::new(format!("Terrain ({x},{z}"))
-            ));
-        }
-    }
+    commands.spawn((
+        Terrain::default(),
+        TransformBundle::default(),
+        VisibilityBundle::default(),
+        Name::new("Terrain")
+    ));
 }

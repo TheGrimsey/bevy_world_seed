@@ -40,6 +40,11 @@ pub struct ModifierProperties {
     pub allow_raising: bool,
     pub allow_lowering: bool,
 }
+impl Default for ModifierProperties {
+    fn default() -> Self {
+        Self { allow_raising: true, allow_lowering: true }
+    }
+}
 
 /// Defines to operation the modifier applies to terrain.
 #[derive(Component, Reflect, Default)]
@@ -225,9 +230,9 @@ pub(super) fn update_terrain_spline_aabb(
                         let b_2d = b.xz() - tile_world;
 
                         let min =
-                            a_2d.min(b_2d) - spline_properties.width - spline_properties.falloff;
+                            a_2d.min(b_2d) - spline_properties.width - spline_properties.falloff.max(f32::EPSILON);
                         let max =
-                            a_2d.max(b_2d) + spline_properties.width + spline_properties.falloff;
+                            a_2d.max(b_2d) + spline_properties.width + spline_properties.falloff.max(f32::EPSILON);
 
                         let min_scaled = ((min / tile_size) * 7.0).as_ivec2();
                         let max_scaled = ((max / tile_size) * 7.0).as_ivec2();
@@ -324,8 +329,8 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             };
 
-            let min = min - shape.falloff;
-            let max = max + shape.falloff;
+            let min = min - shape.falloff.max(f32::EPSILON);
+            let max = max + shape.falloff.max(f32::EPSILON);
 
             let tile_min = min.as_ivec2() >> terrain_settings.tile_size_power.get();
             let tile_max = max.as_ivec2() >> terrain_settings.tile_size_power.get();

@@ -18,7 +18,7 @@ use bevy::{
 use crate::{
     distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
         Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
-    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position}, Heights, TerrainSets, TerrainSettings
+    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position, index_to_x_z}, Heights, TerrainSets, TerrainSettings
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
@@ -361,8 +361,7 @@ fn update_terrain_texture_maps(
                     let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
 
                     for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                        let x = i % resolution as usize;
-                        let z = i / resolution as usize;
+                        let (x, z) = index_to_x_z(i, resolution as usize);
 
                         let x_f = x as f32 * vertex_scale;
                         let z_f = z as f32 * vertex_scale;
@@ -427,8 +426,7 @@ fn update_terrain_texture_maps(
                         match modifier.shape {
                             Shape::Circle { radius } => {
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                                    let x = i % resolution as usize;
-                                    let z = i / resolution as usize;
+                                    let (x, z) = index_to_x_z(i, resolution as usize);
                                     
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -442,7 +440,7 @@ fn update_terrain_texture_maps(
 
                                     let strength = (1.0
                                         - ((pixel_position.distance(shape_translation) - radius)
-                                            / modifier.falloff)
+                                            / modifier.falloff.max(f32::EPSILON))
                                             .clamp(0.0, 1.0))
                                     .min(texture_modifier.max_strength);
 
@@ -455,8 +453,7 @@ fn update_terrain_texture_maps(
                                 let rect_max = Vec2::new(x, z);
 
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                                    let x = i % resolution as usize;
-                                    let z = i / resolution as usize;
+                                    let (x, z) = index_to_x_z(i, resolution as usize);
                                     
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -485,7 +482,7 @@ fn update_terrain_texture_maps(
                                         .max(0.0);
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
-                                    let strength = (1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0))
+                                    let strength = (1.0 - (d_d / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0))
                                         .min(texture_modifier.max_strength);
 
                                     // Apply texture.
@@ -513,8 +510,7 @@ fn update_terrain_texture_maps(
                         };
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                            let x = i % resolution as usize;
-                            let z = i / resolution as usize;
+                            let (x, z) = index_to_x_z(i, resolution as usize);
                             
                             let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                             let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -539,7 +535,7 @@ fn update_terrain_texture_maps(
 
                             let strength = (1.0
                                 - ((distance.sqrt() - spline_properties.width)
-                                    / spline_properties.falloff)
+                                    / spline_properties.falloff.max(f32::EPSILON))
                                     .clamp(0.0, 1.0))
                             .min(texture_modifier.max_strength);
 

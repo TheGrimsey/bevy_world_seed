@@ -94,7 +94,7 @@ fn debug_draw_terrain_modifiers(
                 gizmos.circle(
                     global_transform.translation(),
                     global_transform.up(),
-                    shape.falloff + radius,
+                    shape.falloff.max(f32::EPSILON) + radius,
                     Color::from(DARK_CYAN),
                 );
             }
@@ -111,7 +111,7 @@ fn debug_draw_terrain_modifiers(
                 gizmos.rect(
                     translation,
                     rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                    Vec2::new(x, z) * 2.0 + shape.falloff,
+                    Vec2::new(x, z) * 2.0 + shape.falloff.max(f32::EPSILON),
                     Color::from(DARK_CYAN),
                 );
             }

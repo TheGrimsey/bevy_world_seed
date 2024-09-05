@@ -39,12 +39,12 @@ fn main() {
     });
 
     app.add_systems(Startup, spawn_terrain);
-    app.add_systems(Startup, insert_rules);
+    app.add_systems(Startup, insert_texturing_rules);
 
     app.run();
 }
 
-fn insert_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
+fn insert_texturing_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleGreaterThan {
             angle_radians: 40.0_f32.to_radians(),

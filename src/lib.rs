@@ -14,7 +14,7 @@ use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, HolePunchModifier, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb, TileToModifierMapping};
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
-use utils::distance_to_line_segment;
+use utils::{distance_to_line_segment, index_to_x_z};
 
 pub mod modifiers;
 pub mod terrain;
@@ -249,8 +249,7 @@ fn update_terrain_heights(
             if !terrain_noise_layers.layers.is_empty() {
                 let _span = info_span!("Apply noise").entered();
                 for (i, val) in heights.0.iter_mut().enumerate() {
-                    let x = i % terrain_settings.edge_points as usize;
-                    let z = i / terrain_settings.edge_points as usize;
+                    let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
                     
                     let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
         
@@ -269,8 +268,7 @@ fn update_terrain_heights(
                         match modifier.shape {
                             Shape::Circle { radius } => {
                                 for (i, val) in heights.0.iter_mut().enumerate() {
-                                    let x = i % terrain_settings.edge_points as usize;
-                                    let z = i / terrain_settings.edge_points as usize;
+                                    let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
                 
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -281,7 +279,7 @@ fn update_terrain_heights(
                                 
                                     let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
                                 
-                                    let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / modifier.falloff).clamp(0.0, 1.0);
+                                    let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
                                 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
@@ -296,8 +294,7 @@ fn update_terrain_heights(
                                 let rect_max = Vec2::new(x, z);
                             
                                 for (i, val) in heights.0.iter_mut().enumerate() {
-                                    let x = i % terrain_settings.edge_points as usize;
-                                    let z = i / terrain_settings.edge_points as usize;
+                                    let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
                                     
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -313,7 +310,7 @@ fn update_terrain_heights(
                                     let d_y = (rect_min.y - vertex_local.y).max(vertex_local.y - rect_max.y).max(0.0);
                                     let d_d = (d_x*d_x + d_y*d_y).sqrt();
                                 
-                                    let strength = 1.0 - (d_d / modifier.falloff).clamp(0.0, 1.0);
+                                    let strength = 1.0 - (d_d / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
                                 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
@@ -335,8 +332,7 @@ fn update_terrain_heights(
                 for entry in splines.iter() {
                     if let Ok((spline, spline_properties)) = spline_query.get(entry.entity) {
                         for (i, val) in heights.0.iter_mut().enumerate() {
-                            let x = i % terrain_settings.edge_points as usize;
-                            let z = i / terrain_settings.edge_points as usize;
+                            let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
             
                             let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                             let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
@@ -362,7 +358,7 @@ fn update_terrain_heights(
                             }
             
                             if let Some(height) = height {
-                                let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff).clamp(0.0, 1.0);
+                                let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
                                 *val = val.lerp(height, strength);
                             }
                         }
