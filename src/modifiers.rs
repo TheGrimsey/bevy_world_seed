@@ -10,28 +10,30 @@ use bevy::{
 
 use crate::{RebuildTile, TerrainNoiseLayer, TerrainSettings};
 
+/// Bundle containing all the base components required for a Shape Modifier to function.
+/// 
+/// It additionally needs an Operation and optionally properties.
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
-    pub aabb: TerrainTileAabb,
-    pub modifier: ShapeModifier,
+    pub aabb: ModifierAabb,
+    pub shape: ShapeModifier,
     pub properties: ModifierProperties,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
 }
 
-#[derive(Reflect)]
-pub enum Shape {
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub enum ShapeModifier {
     Circle { radius: f32 },
     // Half-size.
     Rectangle { x: f32, z: f32 },
 }
 
+
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct ShapeModifier {
-    pub shape: Shape,
-    pub falloff: f32,
-}
+pub struct ModifierFalloff(pub f32);
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -46,10 +48,10 @@ impl Default for ModifierProperties {
     }
 }
 
-/// Defines to operation the modifier applies to terrain.
+/// Operation for modifying the height of terrain.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub enum ModifierOperation {
+pub enum ModifierHeightOperation {
     /// Set the height within the modifier's bounds equal to the modifiers global Y coordinate
     #[default]
     Set,
@@ -64,16 +66,25 @@ pub enum ModifierOperation {
     },
 }
 
+/// Operation for creating or removing holes in terrain.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct HolePunchModifier {
+pub struct ModifierHoleOperation {
     /// When true, fill in holes instead of creating them.
     pub invert: bool
 }
 
+
+/// Clamps the max strength of a modifier to this value.
+/// 
+/// Use if you want to only blend the modifier in a bit. 
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct ModifierStrengthLimit(pub f32);
+
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
-    pub tile_aabb: TerrainTileAabb,
+    pub tile_aabb: ModifierAabb,
     pub spline: TerrainSplineCurve,
     pub properties: TerrainSpline,
     pub spline_cached: TerrainSplineCached,
@@ -88,7 +99,7 @@ pub struct ModifierPriority(pub i32);
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct TerrainTileAabb {
+pub struct ModifierAabb {
     pub(super) min: IVec2,
     pub(super) max: IVec2,
 }
@@ -170,7 +181,7 @@ pub(super) fn update_terrain_spline_aabb(
             Entity,
             &TerrainSplineCached,
             &TerrainSpline,
-            &mut TerrainTileAabb,
+            &mut ModifierAabb,
         ),
         (
             Changed<TerrainSplineCached>,
@@ -281,12 +292,15 @@ pub(super) fn update_shape_modifier_aabb(
         (
             Entity,
             &ShapeModifier,
-            &mut TerrainTileAabb,
+            Option<&ModifierFalloff>,
+            &mut ModifierAabb,
             &GlobalTransform,
         ),
         Or<(
             Changed<ShapeModifier>,
-            Changed<ModifierOperation>,
+            Changed<ModifierHeightOperation>,
+            Changed<ModifierProperties>,
+            Changed<ModifierFalloff>,
             Changed<GlobalTransform>,
         )>,
     >,
@@ -298,7 +312,7 @@ pub(super) fn update_shape_modifier_aabb(
 
     query
         .iter_mut()
-        .for_each(|(entity, shape, mut tile_aabb, global_transform)| {
+        .for_each(|(entity, shape, modifier_falloff, mut tile_aabb, global_transform)| {
             for x in tile_aabb.min.x..=tile_aabb.max.x {
                 for y in tile_aabb.min.y..=tile_aabb.max.y {
                     let tile = IVec2::new(x, y);
@@ -316,21 +330,22 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             }
 
-            let (min, max) = match shape.shape {
-                Shape::Circle { radius } => (
+            let (min, max) = match shape {
+                ShapeModifier::Circle { radius } => (
                     global_transform.translation().xz() + Vec2::splat(-radius),
-                    global_transform.translation().xz() + Vec2::splat(radius),
+                    global_transform.translation().xz() + Vec2::splat(*radius),
                 ),
-                Shape::Rectangle { x, z } => {
+                ShapeModifier::Rectangle { x, z } => {
                     let min = global_transform.transform_point(Vec3::new(-x, 0.0, -z));
-                    let max = global_transform.transform_point(Vec3::new(x, 0.0, z));
+                    let max = global_transform.transform_point(Vec3::new(*x, 0.0, *z));
 
                     (min.min(max).xz(), max.max(min).xz())
                 }
             };
 
-            let min = min - shape.falloff.max(f32::EPSILON);
-            let max = max + shape.falloff.max(f32::EPSILON);
+            let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
+            let min = min - falloff;
+            let max = max + falloff;
 
             let tile_min = min.as_ivec2() >> terrain_settings.tile_size_power.get();
             let tile_max = max.as_ivec2() >> terrain_settings.tile_size_power.get();

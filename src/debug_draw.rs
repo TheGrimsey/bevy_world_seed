@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::{
     modifiers::{
-        Shape, ShapeModifier, TerrainSplineCached, TerrainSpline, TerrainTileAabb,
+        ModifierFalloff, ShapeModifier, TerrainSpline, TerrainSplineCached, ModifierAabb
     },
     TerrainSettings,
 };
@@ -37,9 +37,9 @@ fn debug_draw_terrain_modifiers(
     spline_query: Query<(
         &TerrainSplineCached,
         &TerrainSpline,
-        &TerrainTileAabb,
+        &ModifierAabb,
     )>,
-    shape_query: Query<(&ShapeModifier, &GlobalTransform)>,
+    shape_query: Query<(&ShapeModifier, Option<&ModifierFalloff>, &GlobalTransform)>,
     terrain_settings: Res<TerrainSettings>,
 ) {
     spline_query
@@ -80,13 +80,15 @@ fn debug_draw_terrain_modifiers(
             }
         });
 
-    shape_query.iter().for_each(|(shape, global_transform)| {
-        match shape.shape {
-            Shape::Circle { radius } => {
+    shape_query.iter().for_each(|(shape, modifier_falloff, global_transform)| {
+        let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
+
+        match shape {
+            ShapeModifier::Circle { radius } => {
                 gizmos.circle(
                     global_transform.translation(),
                     global_transform.up(),
-                    radius,
+                    *radius,
                     Color::from(LIGHT_CYAN),
                 );
 
@@ -94,16 +96,16 @@ fn debug_draw_terrain_modifiers(
                 gizmos.circle(
                     global_transform.translation(),
                     global_transform.up(),
-                    shape.falloff.max(f32::EPSILON) + radius,
+                    falloff + radius,
                     Color::from(DARK_CYAN),
                 );
             }
-            Shape::Rectangle { x, z } => {
+            ShapeModifier::Rectangle { x, z } => {
                 let (_, rot, translation) = global_transform.to_scale_rotation_translation();
                 gizmos.rect(
                     translation,
                     rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                    Vec2::new(x, z) * 2.0,
+                    Vec2::new(*x, *z) * 2.0,
                     Color::from(LIGHT_CYAN),
                 );
 
@@ -111,7 +113,7 @@ fn debug_draw_terrain_modifiers(
                 gizmos.rect(
                     translation,
                     rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                    Vec2::new(x, z) * 2.0 + shape.falloff.max(f32::EPSILON),
+                    Vec2::new(*x, *z) * 2.0 + falloff,
                     Color::from(DARK_CYAN),
                 );
             }

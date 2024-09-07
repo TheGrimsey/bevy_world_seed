@@ -51,7 +51,7 @@ fn insert_texturing_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, ass
             falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-        tiling_factor: 16.0
+        units_per_texture: 4.0
     });
     
     texturing_rules.rules.push(TexturingRule {
@@ -60,7 +60,7 @@ fn insert_texturing_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, ass
             falloff_radians: 2.5_f32.to_radians()
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
-        tiling_factor: 16.0
+        units_per_texture: 4.0
     });
 }
 

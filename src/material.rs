@@ -17,7 +17,7 @@ use bevy::{
 
 use crate::{
     distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
-        Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
+        ModifierFalloff, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
     }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position, index_to_x_z}, Heights, TerrainSets, TerrainSettings
 };
 
@@ -32,7 +32,7 @@ impl Plugin for TerrainTexturingPlugin {
         app.insert_resource(GlobalTexturingRules { rules: vec![] });
 
         app.register_asset_reflect::<TerrainMaterialExtended>()
-            .register_type::<TextureModifier>()
+            .register_type::<TextureModifierOperation>()
             .register_type::<GlobalTexturingRules>();
 
         
@@ -70,13 +70,13 @@ impl TerrainTexturingSettings {
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TextureModifier {
+pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
     pub max_strength: f32,
-    /// Represents how much the texture will tile in a single terrain tile.
+    /// Represents the size of the texture in world units.
     /// 
-    /// `1.0` means the texture will cover the entire tile. `2.0` means the texture will repeat twice in each direction. 
-    pub tiling_factor: f32
+    /// `1.0` means the texture will repeat every world unit. 
+    pub units_per_texture: f32
 }
 
 #[derive(Reflect, Debug)]
@@ -136,10 +136,10 @@ impl TexturingRuleEvaluator {
 pub struct TexturingRule {
     pub evaluator: TexturingRuleEvaluator,
     pub texture: Handle<Image>,
-    /// Represents how much the texture will tile in a single terrain tile.
+    /// Represents the size of the texture in world units.
     /// 
-    /// `1.0` means the texture will cover the entire tile. `2.0` means the texture will repeat twice in each direction. 
-    pub tiling_factor: f32
+    /// `1.0` means the texture will repeat every world unit. 
+    pub units_per_texture: f32
 }
 
 #[derive(Resource, Reflect)]
@@ -184,18 +184,16 @@ pub(super) struct TerrainMaterial {
     texture_d_scale: f32,
 }
 impl TerrainMaterial {
-    pub fn clear_textures(&mut self) {
+    fn clear_textures(&mut self) {
         self.texture_a = None;
         self.texture_b = None;
         self.texture_c = None;
         self.texture_d = None;
     }
 
-    pub fn get_texture_slot(&mut self, image: &Handle<Image>, scale: f32) -> Option<usize> {
-        /*
-         *   There has to be a better way to do this, right?
-         */
-
+    fn get_texture_slot(&mut self, image: &Handle<Image>, units_per_texture: f32, tile_size: f32) -> Option<usize> {
+        let scale = 1.0 / (units_per_texture / tile_size);
+        // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
         if self.texture_a.as_ref().is_some_and(|entry| entry == image && self.texture_a_scale == scale) {
             Some(0)
         } else if self.texture_b.as_ref().is_some_and(|entry| entry == image && self.texture_b_scale == scale) {
@@ -230,10 +228,6 @@ impl TerrainMaterial {
     }
 }
 
-/*
-*   This is likely overkill.
-*   We should figure out a better way to get shadows and lightning than this.
-*/
 type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
 
 impl MaterialExtension for TerrainMaterial {
@@ -288,9 +282,9 @@ fn insert_texture_map(
 }
 
 fn update_terrain_texture_maps(
-    shape_modifier_query: Query<(&TextureModifier, &ShapeModifier, &GlobalTransform)>,
+    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloff>, &GlobalTransform)>,
     spline_query: Query<(
-        &TextureModifier,
+        &TextureModifierOperation,
         &TerrainSplineCached,
         &TerrainSpline,
     )>,
@@ -354,7 +348,7 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 for rule in texturing_rules.rules.iter() {
-                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture, rule.tiling_factor) else {
+                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture, rule.units_per_texture, tile_size) else {
                         info!("Hit max texture channels.");
                         return;
                     };
@@ -386,7 +380,7 @@ fn update_terrain_texture_maps(
                             *heights.0.get_unchecked(vertex_c),
                             *heights.0.get_unchecked(vertex_d),
                             local_x,
-                            z_f - z_f.round(),
+                            local_z,
                         )};
 
                         let normal_at_position = unsafe { get_normal_at_position(
@@ -412,19 +406,20 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply shape modifiers").entered();
 
                 for entry in shapes.iter() {
-                    if let Ok((texture_modifier, modifier, global_transform)) =
+                    if let Ok((texture_modifier, shape_modifier, modifier_falloff, global_transform)) =
                         shape_modifier_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.units_per_texture, tile_size)
                         else {
                             info!("Hit max texture channels.");
                             return;
                         };
                         let shape_translation = global_transform.translation().xz();
+                        let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
 
-                        match modifier.shape {
-                            Shape::Circle { radius } => {
+                        match shape_modifier {
+                            ShapeModifier::Circle { radius } => {
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                                     let (x, z) = index_to_x_z(i, resolution as usize);
                                     
@@ -440,7 +435,7 @@ fn update_terrain_texture_maps(
 
                                     let strength = (1.0
                                         - ((pixel_position.distance(shape_translation) - radius)
-                                            / modifier.falloff.max(f32::EPSILON))
+                                            / falloff)
                                             .clamp(0.0, 1.0))
                                     .min(texture_modifier.max_strength);
 
@@ -448,9 +443,9 @@ fn update_terrain_texture_maps(
                                     apply_texture(val, texture_channel, strength);
                                 }
                             }
-                            Shape::Rectangle { x, z } => {
+                            ShapeModifier::Rectangle { x, z } => {
                                 let rect_min = Vec2::new(-x, -z);
-                                let rect_max = Vec2::new(x, z);
+                                let rect_max = Vec2::new(*x, *z);
 
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                                     let (x, z) = index_to_x_z(i, resolution as usize);
@@ -482,7 +477,7 @@ fn update_terrain_texture_maps(
                                         .max(0.0);
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
-                                    let strength = (1.0 - (d_d / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0))
+                                    let strength = (1.0 - (d_d / falloff).clamp(0.0, 1.0))
                                         .min(texture_modifier.max_strength);
 
                                     // Apply texture.
@@ -503,11 +498,12 @@ fn update_terrain_texture_maps(
                         spline_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.tiling_factor)
+                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.units_per_texture, tile_size)
                         else {
                             info!("Hit max texture channels.");
                             continue;
                         };
+                        let falloff = spline_properties.falloff.max(f32::EPSILON);
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let (x, z) = index_to_x_z(i, resolution as usize);
@@ -535,7 +531,7 @@ fn update_terrain_texture_maps(
 
                             let strength = (1.0
                                 - ((distance.sqrt() - spline_properties.width)
-                                    / spline_properties.falloff.max(f32::EPSILON))
+                                    / falloff)
                                     .clamp(0.0, 1.0))
                             .min(texture_modifier.max_strength);
 

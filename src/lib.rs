@@ -12,7 +12,7 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
-use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, HolePunchModifier, ModifierOperation, ModifierPriority, ModifierProperties, Shape, ShapeModifier, TerrainSpline, TerrainSplineCached, TerrainSplineCurve, TerrainTileAabb, TileToModifierMapping};
+use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloff, ModifierHeightOperation, ModifierPriority, ModifierProperties, ModifierStrengthLimit, ShapeModifier, TerrainSpline, TerrainSplineCached, TerrainSplineCurve, ModifierAabb, TileToModifierMapping};
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_to_line_segment, index_to_x_z};
 
@@ -89,12 +89,13 @@ impl Plugin for TerrainPlugin {
             .register_type::<TerrainSplineCached>()
             .register_type::<TerrainNoiseLayer>()
             .register_type::<TerrainNoiseLayers>()
-            .register_type::<TerrainTileAabb>()
+            .register_type::<ModifierAabb>()
             .register_type::<TerrainSpline>()
             .register_type::<Terrain>()
             .register_type::<ShapeModifier>()
-            .register_type::<ModifierOperation>()
+            .register_type::<ModifierHeightOperation>()
             .register_type::<ModifierPriority>()
+            .register_type::<ModifierStrengthLimit>()
 
             .add_event::<RebuildTile>()
             .add_event::<TileHeightsRebuilt>();
@@ -204,8 +205,8 @@ pub struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    shape_modifier_query: Query<(&ShapeModifier, &ModifierProperties, AnyOf<(&ModifierOperation, &HolePunchModifier)>, &GlobalTransform)>,
-    spline_query: Query<(&TerrainSplineCached, &TerrainSpline)>,
+    shape_modifier_query: Query<(&ShapeModifier, &ModifierProperties, Option<&ModifierStrengthLimit>, Option<&ModifierFalloff>, AnyOf<(&ModifierHeightOperation, &ModifierHoleOperation)>, &GlobalTransform)>,
+    spline_query: Query<(&TerrainSplineCached, &TerrainSpline, Option<&ModifierStrengthLimit>)>,
     mut heights: Query<(&mut Heights, &mut Holes)>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
@@ -262,11 +263,12 @@ fn update_terrain_heights(
                 let _span = info_span!("Apply shape modifiers").entered();
                 
                 for entry in shapes.iter() {
-                    if let Ok((modifier, modifier_properties, (operation, hole_punch), global_transform)) = shape_modifier_query.get(entry.entity) {
+                    if let Ok((modifier, modifier_properties, modifier_strength_limit, modifier_falloff, (operation, hole_punch), global_transform)) = shape_modifier_query.get(entry.entity) {
                         let shape_translation = global_transform.translation().xz();
+                        let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
                         
-                        match modifier.shape {
-                            Shape::Circle { radius } => {
+                        match modifier {
+                            ShapeModifier::Circle { radius } => {
                                 for (i, val) in heights.0.iter_mut().enumerate() {
                                     let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
                 
@@ -279,7 +281,7 @@ fn update_terrain_heights(
                                 
                                     let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
                                 
-                                    let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
+                                    let strength = 1.0 - ((vertex_position.distance(shape_translation) - radius) / falloff).clamp(0.0, modifier_strength_limit.map_or(1.0, |modifier| modifier.0));
                                 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
@@ -289,9 +291,9 @@ fn update_terrain_heights(
                                     }
                                 }
                             },
-                            Shape::Rectangle { x, z } => {
+                            ShapeModifier::Rectangle { x, z } => {
                                 let rect_min = Vec2::new(-x, -z);
-                                let rect_max = Vec2::new(x, z);
+                                let rect_max = Vec2::new(*x, *z);
                             
                                 for (i, val) in heights.0.iter_mut().enumerate() {
                                     let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
@@ -310,7 +312,7 @@ fn update_terrain_heights(
                                     let d_y = (rect_min.y - vertex_local.y).max(vertex_local.y - rect_max.y).max(0.0);
                                     let d_d = (d_x*d_x + d_y*d_y).sqrt();
                                 
-                                    let strength = 1.0 - (d_d / modifier.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
+                                    let strength = 1.0 - (d_d / falloff).clamp(0.0, modifier_strength_limit.map_or(1.0, |modifier| modifier.0));
                                 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(modifier_properties, operation, vertex_position, shape_translation, *val, global_transform, strength, &mut noise_cache, false);
@@ -330,7 +332,7 @@ fn update_terrain_heights(
                 let _span = info_span!("Apply splines").entered();
     
                 for entry in splines.iter() {
-                    if let Ok((spline, spline_properties)) = spline_query.get(entry.entity) {
+                    if let Ok((spline, spline_properties, modifier_strength_limit)) = spline_query.get(entry.entity) {
                         for (i, val) in heights.0.iter_mut().enumerate() {
                             let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
             
@@ -358,7 +360,7 @@ fn update_terrain_heights(
                             }
             
                             if let Some(height) = height {
-                                let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
+                                let strength = 1.0 - ((distance.sqrt() - spline_properties.width) / spline_properties.falloff.max(f32::EPSILON)).clamp(0.0, modifier_strength_limit.map_or(1.0, |modifier| modifier.0));
                                 *val = val.lerp(height, strength);
                             }
                         }
@@ -371,9 +373,9 @@ fn update_terrain_heights(
     }
 }
 
-fn apply_modifier(modifier_properties: &ModifierProperties, operation: &ModifierOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>, set_with_position_y: bool) -> f32 {
+fn apply_modifier(modifier_properties: &ModifierProperties, operation: &ModifierHeightOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>, set_with_position_y: bool) -> f32 {
     let mut new_val = match operation {
-        ModifierOperation::Set => {
+        ModifierHeightOperation::Set => {
             // Relative position so we can apply the rotation from the shape modifier. This gets us tilted circles.
             let position = vertex_position - shape_translation;
 
@@ -385,13 +387,13 @@ fn apply_modifier(modifier_properties: &ModifierProperties, operation: &Modifier
 
             val.lerp(height, strength)
         },
-        ModifierOperation::Change(change) => {
+        ModifierHeightOperation::Change(change) => {
             val + *change * strength
         },
-        ModifierOperation::Step { step, smoothing } => {
+        ModifierHeightOperation::Step { step, smoothing } => {
             val.lerp((((val / *step) * smoothing).round() / smoothing) * *step , strength)
         },
-        ModifierOperation::Noise { noise } => {
+        ModifierHeightOperation::Noise { noise } => {
             val.lerp(noise.sample(vertex_position.x, vertex_position.y, noise_cache.get(noise.seed)), strength)
         },
     };
