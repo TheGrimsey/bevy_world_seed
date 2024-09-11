@@ -12,7 +12,7 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
 use noise::{NoiseFn, Simplex};
-use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloff, ModifierHeightOperation, ModifierPriority, ModifierProperties, ModifierStrengthLimit, ShapeModifier, TerrainSpline, TerrainSplineCached, TerrainSplineCurve, ModifierAabb, TileToModifierMapping};
+use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TerrainSplineShape, ModifierAabb, TileToModifierMapping};
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_to_line_segment, index_to_x_z};
 
@@ -85,17 +85,17 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TileToModifierMapping>()
             .init_resource::<TileToTerrain>()
 
-            .register_type::<TerrainSplineCurve>()
+            .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
             .register_type::<TerrainNoiseLayer>()
             .register_type::<TerrainNoiseLayers>()
             .register_type::<ModifierAabb>()
-            .register_type::<TerrainSpline>()
+            .register_type::<TerrainSplineProperties>()
             .register_type::<Terrain>()
             .register_type::<ShapeModifier>()
             .register_type::<ModifierHeightOperation>()
             .register_type::<ModifierPriority>()
-            .register_type::<ModifierStrengthLimit>()
+            .register_type::<ModifierStrengthLimitProperty>()
 
             .add_event::<RebuildTile>()
             .add_event::<TileHeightsRebuilt>();
@@ -205,8 +205,8 @@ pub struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
     terrain_noise_layers: Res<TerrainNoiseLayers>,
-    shape_modifier_query: Query<(&ShapeModifier, &ModifierProperties, Option<&ModifierStrengthLimit>, Option<&ModifierFalloff>, AnyOf<(&ModifierHeightOperation, &ModifierHoleOperation)>, &GlobalTransform)>,
-    spline_query: Query<(&TerrainSplineCached, &TerrainSpline, Option<&ModifierStrengthLimit>)>,
+    shape_modifier_query: Query<(&ShapeModifier, &ModifierHeightProperties, Option<&ModifierStrengthLimitProperty>, Option<&ModifierFalloffProperty>, AnyOf<(&ModifierHeightOperation, &ModifierHoleOperation)>, &GlobalTransform)>,
+    spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties, Option<&ModifierStrengthLimitProperty>)>,
     mut heights: Query<(&mut Heights, &mut Holes)>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
@@ -373,7 +373,7 @@ fn update_terrain_heights(
     }
 }
 
-fn apply_modifier(modifier_properties: &ModifierProperties, operation: &ModifierHeightOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>, set_with_position_y: bool) -> f32 {
+fn apply_modifier(modifier_properties: &ModifierHeightProperties, operation: &ModifierHeightOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>, set_with_position_y: bool) -> f32 {
     let mut new_val = match operation {
         ModifierHeightOperation::Set => {
             // Relative position so we can apply the rotation from the shape modifier. This gets us tilted circles.

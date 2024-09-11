@@ -2,7 +2,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierHoleOperation, ModifierFalloff, ModifierHeightOperation, ModifierPriority, ModifierProperties, ShapeModifier, ShapeModifierBundle, TerrainSpline, TerrainSplineBundle, TerrainSplineCached, TerrainSplineCurve, ModifierAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ShapeModifier, ShapeModifierBundle, TerrainSplineProperties, TerrainSplineBundle, TerrainSplineCached, TerrainSplineShape, ModifierAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -83,10 +83,10 @@ fn spawn_terrain(
     commands.spawn((
         TerrainSplineBundle {
             tile_aabb: ModifierAabb::default(),
-            spline: TerrainSplineCurve {
+            spline: TerrainSplineShape {
                 curve: spline
             },
-            properties: TerrainSpline {
+            properties: TerrainSplineProperties {
                 width: 4.0,
                 falloff: 4.0
             },
@@ -108,14 +108,14 @@ fn spawn_terrain(
             shape: ShapeModifier::Circle {
                 radius: 4.0
             },
-            properties: ModifierProperties {
+            properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
         },
-        ModifierFalloff(4.0),
+        ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
@@ -132,7 +132,7 @@ fn spawn_terrain(
             shape: ShapeModifier::Circle {
                 radius: 2.9
             },
-            properties: ModifierProperties {
+            properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
@@ -152,14 +152,14 @@ fn spawn_terrain(
                 x: 2.5,
                 z: 5.0
             },
-            properties: ModifierProperties {
+            properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(2),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
         },
-        ModifierFalloff(4.0),
+        ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),

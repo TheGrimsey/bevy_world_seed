@@ -52,18 +52,18 @@ fn fragment(
 
     var color = diffuse_a + diffuse_b + diffuse_c + diffuse_d;
 
-// Yoinking some code from Bevy pbr shader.
-// https://github.com/bevyengine/bevy/blob/bd8faa7ae17dcd8b4df2beba28876759fb4fdef5/crates/bevy_pbr/src/render/pbr.wgsl
-#ifdef PREPASS_PIPELINE
-    // write the gbuffer, lighting pass id, and optionally normal and motion_vector textures
-    let out = deferred_output(in, pbr_input);
-#else
     // generate a PbrInput struct from the StandardMaterial bindings
     var pbr_input = pbr_input_from_standard_material(mesh, is_front);
     
     // Replace color with out mixed color.
     pbr_input.material.base_color =  color;
 
+// Yoinking some code from Bevy pbr shader.
+// https://github.com/bevyengine/bevy/blob/bd8faa7ae17dcd8b4df2beba28876759fb4fdef5/crates/bevy_pbr/src/render/pbr.wgsl
+#ifdef PREPASS_PIPELINE
+    // write the gbuffer, lighting pass id, and optionally normal and motion_vector textures
+    let out = deferred_output(in, pbr_input);
+#else
     // apply lighting
     var out = apply_pbr_lighting(pbr_input);
     // apply post processsing. 

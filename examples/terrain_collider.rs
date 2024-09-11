@@ -3,7 +3,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 use bevy::{app::{App, Startup, Update}, asset::{AssetMode, AssetPlugin}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, on_event, BuildChildren, Commands, Component, Entity, EventReader, IntoSystemConfigs, PluginGroup, Query, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::{parry::shape::{HeightField, HeightFieldCellStatus, SharedShape}, plugin::{NoUserData, RapierPhysicsPlugin}, prelude::Collider, render::RapierDebugRenderPlugin};
-use bevy_terrain_test::{material::TerrainTexturingSettings, modifiers::{ModifierHoleOperation, ModifierPriority, ModifierProperties, ShapeModifier, ShapeModifierBundle, ModifierAabb}, terrain::{Holes, Terrain, TileToTerrain}, utils::index_to_x_z, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
+use bevy_terrain_test::{material::TerrainTexturingSettings, modifiers::{ModifierHoleOperation, ModifierPriority, ModifierHeightProperties, ShapeModifier, ShapeModifierBundle, ModifierAabb}, terrain::{Holes, Terrain, TileToTerrain}, utils::index_to_x_z, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
 
 
 fn main() {
@@ -118,7 +118,7 @@ fn spawn_terrain(
             shape: ShapeModifier::Circle {
                 radius: 2.9
             },
-            properties: ModifierProperties::default(),
+            properties: ModifierHeightProperties::default(),
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(40.0, 2.0, 6.0))),
         },

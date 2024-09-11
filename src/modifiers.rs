@@ -17,7 +17,7 @@ use crate::{RebuildTile, TerrainNoiseLayer, TerrainSettings};
 pub struct ShapeModifierBundle {
     pub aabb: ModifierAabb,
     pub shape: ShapeModifier,
-    pub properties: ModifierProperties,
+    pub properties: ModifierHeightProperties,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
 }
@@ -30,19 +30,21 @@ pub enum ShapeModifier {
     Rectangle { x: f32, z: f32 },
 }
 
+/// Determines the falloff distance for operations.
+/// 
+/// Affects the strength falloff of height & texture operators 
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct ModifierFalloffProperty(pub f32);
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct ModifierFalloff(pub f32);
-
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct ModifierProperties {
+pub struct ModifierHeightProperties {
     // TODO: These should be bitflags. They are only bools for testing in editor.
     pub allow_raising: bool,
     pub allow_lowering: bool,
 }
-impl Default for ModifierProperties {
+impl Default for ModifierHeightProperties {
     fn default() -> Self {
         Self { allow_raising: true, allow_lowering: true }
     }
@@ -80,13 +82,13 @@ pub struct ModifierHoleOperation {
 /// Use if you want to only blend the modifier in a bit. 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct ModifierStrengthLimit(pub f32);
+pub struct ModifierStrengthLimitProperty(pub f32);
 
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
     pub tile_aabb: ModifierAabb,
-    pub spline: TerrainSplineCurve,
-    pub properties: TerrainSpline,
+    pub spline: TerrainSplineShape,
+    pub properties: TerrainSplineProperties,
     pub spline_cached: TerrainSplineCached,
     pub priority: ModifierPriority,
     pub transform_bundle: TransformBundle,
@@ -104,19 +106,24 @@ pub struct ModifierAabb {
     pub(super) max: IVec2,
 }
 
+/// Defines the shape of a spline modifier.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TerrainSplineCurve {
+pub struct TerrainSplineShape {
+    // TODO: This should be expecting the generic Curve trait when it's implemented.
     pub curve: CubicCurve<Vec3>,
 }
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TerrainSpline {
+pub struct TerrainSplineProperties {
     pub width: f32,
     pub falloff: f32,
 }
 
+/// Cache of points used when updating tiles.
+/// 
+/// Automatically updated when the terrain spline changes. 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct TerrainSplineCached {
@@ -132,7 +139,7 @@ pub(super) struct TileModifierEntry {
 }
 
 #[derive(Resource, Default)]
-pub struct TileToModifierMapping {
+pub(super) struct TileToModifierMapping {
     pub(super) shape: HashMap<IVec2, Vec<TileModifierEntry>>,
     pub(super) splines: HashMap<IVec2, Vec<TileModifierEntry>>,
 }
@@ -141,13 +148,13 @@ pub(super) fn update_terrain_spline_cache(
     mut query: Query<
         (
             &mut TerrainSplineCached,
-            &TerrainSplineCurve,
-            &TerrainSpline,
+            &TerrainSplineShape,
+            &TerrainSplineProperties,
             &GlobalTransform,
         ),
         Or<(
-            Changed<TerrainSpline>,
-            Changed<TerrainSplineCurve>,
+            Changed<TerrainSplineProperties>,
+            Changed<TerrainSplineShape>,
             Changed<GlobalTransform>,
         )>,
     >,
@@ -180,12 +187,12 @@ pub(super) fn update_terrain_spline_aabb(
         (
             Entity,
             &TerrainSplineCached,
-            &TerrainSpline,
+            &TerrainSplineProperties,
             &mut ModifierAabb,
         ),
         (
             Changed<TerrainSplineCached>,
-            Changed<TerrainSpline>,
+            Changed<TerrainSplineProperties>,
         ),
     >,
     terrain_settings: Res<TerrainSettings>,
@@ -292,15 +299,15 @@ pub(super) fn update_shape_modifier_aabb(
         (
             Entity,
             &ShapeModifier,
-            Option<&ModifierFalloff>,
+            Option<&ModifierFalloffProperty>,
             &mut ModifierAabb,
             &GlobalTransform,
         ),
         Or<(
             Changed<ShapeModifier>,
             Changed<ModifierHeightOperation>,
-            Changed<ModifierProperties>,
-            Changed<ModifierFalloff>,
+            Changed<ModifierHeightProperties>,
+            Changed<ModifierFalloffProperty>,
             Changed<GlobalTransform>,
         )>,
     >,

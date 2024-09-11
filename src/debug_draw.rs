@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::{
     modifiers::{
-        ModifierFalloff, ShapeModifier, TerrainSpline, TerrainSplineCached, ModifierAabb
+        ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, ModifierAabb
     },
     TerrainSettings,
 };
@@ -36,10 +36,10 @@ fn debug_draw_terrain_modifiers(
     mut gizmos: Gizmos,
     spline_query: Query<(
         &TerrainSplineCached,
-        &TerrainSpline,
+        &TerrainSplineProperties,
         &ModifierAabb,
     )>,
-    shape_query: Query<(&ShapeModifier, Option<&ModifierFalloff>, &GlobalTransform)>,
+    shape_query: Query<(&ShapeModifier, Option<&ModifierFalloffProperty>, &GlobalTransform)>,
     terrain_settings: Res<TerrainSettings>,
 ) {
     spline_query

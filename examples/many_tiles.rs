@@ -44,6 +44,7 @@ fn main() {
     app.run();
 }
 
+/// Defines the rules for procedural texturing
 fn insert_texturing_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleGreaterThan {

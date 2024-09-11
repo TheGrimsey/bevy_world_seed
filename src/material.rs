@@ -17,7 +17,7 @@ use bevy::{
 
 use crate::{
     distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
-        ModifierFalloff, ShapeModifier, TerrainSpline, TerrainSplineCached, TileToModifierMapping
+        ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TileToModifierMapping
     }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position, index_to_x_z}, Heights, TerrainSets, TerrainSettings
 };
 
@@ -81,52 +81,78 @@ pub struct TextureModifierOperation {
 
 #[derive(Reflect, Debug)]
 pub enum TexturingRuleEvaluator {
+    /// Applies texture to everything above `height` with a falloff distance of `falloff`
     Above {
+        /// Y above which the rule will apply at full strength in world units.
         height: f32,
+        /// Falloff for strength below `height` in world units.
+        /// 
+        /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
+    /// Applies texture to everything below `height` with a falloff distance of `falloff`
     Below {
+        /// Y below which the rule will apply at full strength in world units.
         height: f32,
+        /// Falloff for strength above `height` in world units.
+        /// 
+        /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
+    /// Applies texture to everything between `max_height` & `min_height` with a falloff distance of `falloff`
     Between {
+        /// Y below which the rule will apply at full strength in world units.
         max_height: f32,
+        /// Y above which the rule will apply at full strength in world units.
         min_height: f32,
+        /// Falloff for strength above `max_height` & below `min_height` in world units.
+        /// 
+        /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
+    /// Applies texture to everything with a normal angle greater than `angle_radians`
     AngleGreaterThan {
+        /// Angle in radians above which the rule will apply at full strength.
         angle_radians: f32,
+        /// Falloff for strength below `angle_radians` in radians.
+        /// 
+        /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
     },
+    /// Applies texture to everything with a normal angle less than `angle_radians`
     AngleLessThan {
+        /// Angle in radians below which the rule will apply at full strength.
         angle_radians: f32,
+        /// Falloff for strength above `angle_radians` in radians.
+        /// 
+        /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
     }
 }
 impl TexturingRuleEvaluator {
-    pub fn eval(&self, height_at_position: f32, angle: f32) -> f32 {
+    pub fn eval(&self, height_at_position: f32, angle_at_position: f32) -> f32 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
-                1.0 - ((height_at_position - height).max(0.0) / falloff).clamp(0.0, 1.0)
+                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             }
             TexturingRuleEvaluator::Below { height, falloff } => {
-                1.0 - ((height - height_at_position).max(0.0) / falloff).clamp(0.0, 1.0)
+                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             },
             TexturingRuleEvaluator::Between {
                 max_height,
                 min_height,
                 falloff,
             } => {
-                let strength_below = 1.0 - ((min_height - height_at_position).max(0.0) / falloff).clamp(0.0, 1.0);
-                let strength_above = 1.0 - ((height_at_position - max_height).max(0.0) / falloff).clamp(0.0, 1.0);
+                let strength_below = 1.0 - ((min_height - height_at_position).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
+                let strength_above = 1.0 - ((height_at_position - max_height).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
                 
                 strength_below.min(strength_above)
             },
             TexturingRuleEvaluator::AngleGreaterThan { angle_radians, falloff_radians } => {
-                1.0 - ((angle_radians - angle).max(0.0) / falloff_radians).clamp(0.0, 1.0)
+                1.0 - ((angle_radians - angle_at_position).max(0.0) / falloff_radians.max(f32::EPSILON)).clamp(0.0, 1.0)
             },
             TexturingRuleEvaluator::AngleLessThan { angle_radians, falloff_radians } => {
-                1.0 - ((angle - angle_radians).max(0.0) / falloff_radians).clamp(0.0, 1.0)
+                1.0 - ((angle_at_position - angle_radians).max(0.0) / falloff_radians.max(f32::EPSILON)).clamp(0.0, 1.0)
             },
         }
     }
@@ -135,6 +161,7 @@ impl TexturingRuleEvaluator {
 #[derive(Reflect)]
 pub struct TexturingRule {
     pub evaluator: TexturingRuleEvaluator,
+    /// The texture to apply with this rule.
     pub texture: Handle<Image>,
     /// Represents the size of the texture in world units.
     /// 
@@ -142,6 +169,7 @@ pub struct TexturingRule {
     pub units_per_texture: f32
 }
 
+/// Defines the rules for procedural texturing.
 #[derive(Resource, Reflect)]
 #[reflect(Resource)]
 pub struct GlobalTexturingRules {
@@ -282,11 +310,11 @@ fn insert_texture_map(
 }
 
 fn update_terrain_texture_maps(
-    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloff>, &GlobalTransform)>,
+    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloffProperty>, &GlobalTransform)>,
     spline_query: Query<(
         &TextureModifierOperation,
         &TerrainSplineCached,
-        &TerrainSpline,
+        &TerrainSplineProperties,
     )>,
     tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &Terrain)>,
     texture_settings: Res<TerrainTexturingSettings>,
