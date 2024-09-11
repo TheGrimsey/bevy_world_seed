@@ -2,7 +2,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ShapeModifier, ShapeModifierBundle, TerrainSplineProperties, TerrainSplineBundle, TerrainSplineCached, TerrainSplineShape, ModifierAabb}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -99,7 +99,8 @@ fn spawn_terrain(
             max_strength: 0.95,
             units_per_texture: 4.0
         },
-        Name::new("Spline")
+        TextureModifierFalloffProperty(1.0),
+        Name::new("Spline"),
     ));
 
     commands.spawn((

@@ -33,7 +33,9 @@ impl Plugin for TerrainTexturingPlugin {
 
         app.register_asset_reflect::<TerrainMaterialExtended>()
             .register_type::<TextureModifierOperation>()
-            .register_type::<GlobalTexturingRules>();
+            .register_type::<TextureModifierFalloffProperty>()
+            .register_type::<GlobalTexturingRules>()
+        ;
 
         
         load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
@@ -78,6 +80,13 @@ pub struct TextureModifierOperation {
     /// `1.0` means the texture will repeat every world unit. 
     pub units_per_texture: f32
 }
+
+/// Determines the falloff distance for texture operations.
+/// 
+/// Overrides [`ModifierFalloffProperty`] if present.
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct TextureModifierFalloffProperty(pub f32);
 
 #[derive(Reflect, Debug)]
 pub enum TexturingRuleEvaluator {
@@ -310,11 +319,12 @@ fn insert_texture_map(
 }
 
 fn update_terrain_texture_maps(
-    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloffProperty>, &GlobalTransform)>,
+    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloffProperty>, Option<&TextureModifierFalloffProperty>, &GlobalTransform)>,
     spline_query: Query<(
         &TextureModifierOperation,
         &TerrainSplineCached,
         &TerrainSplineProperties,
+        Option<&TextureModifierFalloffProperty>
     )>,
     tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &Terrain)>,
     texture_settings: Res<TerrainTexturingSettings>,
@@ -434,7 +444,7 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply shape modifiers").entered();
 
                 for entry in shapes.iter() {
-                    if let Ok((texture_modifier, shape_modifier, modifier_falloff, global_transform)) =
+                    if let Ok((texture_modifier, shape_modifier, modifier_falloff, texture_modifier_falloff, global_transform)) =
                         shape_modifier_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
@@ -444,7 +454,7 @@ fn update_terrain_texture_maps(
                             return;
                         };
                         let shape_translation = global_transform.translation().xz();
-                        let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
+                        let falloff = texture_modifier_falloff.map(|falloff| falloff.0).or(modifier_falloff.map(|falloff| falloff.0)).unwrap_or(f32::EPSILON).max(f32::EPSILON);
 
                         match shape_modifier {
                             ShapeModifier::Circle { radius } => {
@@ -522,7 +532,7 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply splines").entered();
 
                 for entry in splines.iter() {
-                    if let Ok((texture_modifier, spline, spline_properties)) =
+                    if let Ok((texture_modifier, spline, spline_properties, texture_modifier_falloff)) =
                         spline_query.get(entry.entity)
                     {
                         let Some(texture_channel) =
@@ -531,7 +541,7 @@ fn update_terrain_texture_maps(
                             info!("Hit max texture channels.");
                             continue;
                         };
-                        let falloff = spline_properties.falloff.max(f32::EPSILON);
+                        let falloff = texture_modifier_falloff.map_or(spline_properties.falloff, |falloff| falloff.0).max(f32::EPSILON);
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let (x, z) = index_to_x_z(i, resolution as usize);
