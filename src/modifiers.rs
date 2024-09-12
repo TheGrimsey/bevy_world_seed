@@ -8,7 +8,7 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::{RebuildTile, TerrainNoiseLayer, TerrainSettings};
+use crate::{noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
 
 /// Bundle containing all the base components required for a Shape Modifier to function.
 /// 
@@ -64,7 +64,7 @@ pub enum ModifierHeightOperation {
         smoothing: f32,
     },
     Noise {
-        noise: TerrainNoiseLayer,
+        noise: TerrainNoiseDetailLayer,
     },
 }
 

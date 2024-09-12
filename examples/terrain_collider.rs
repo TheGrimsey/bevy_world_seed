@@ -3,7 +3,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 use bevy::{app::{App, Startup, Update}, asset::{AssetMode, AssetPlugin}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, on_event, BuildChildren, Commands, Component, Entity, EventReader, IntoSystemConfigs, PluginGroup, Query, Res, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
 use bevy_rapier3d::{parry::shape::{HeightField, HeightFieldCellStatus, SharedShape}, plugin::{NoUserData, RapierPhysicsPlugin}, prelude::Collider, render::RapierDebugRenderPlugin};
-use bevy_terrain_test::{material::TerrainTexturingSettings, modifiers::{ModifierHoleOperation, ModifierPriority, ModifierHeightProperties, ShapeModifier, ShapeModifierBundle, ModifierAabb}, terrain::{Holes, Terrain, TileToTerrain}, utils::index_to_x_z, Heights, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
+use bevy_terrain_test::{material::TerrainTexturingSettings, modifiers::{ModifierAabb, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, terrain::{Holes, Terrain, TileToTerrain}, utils::index_to_x_z, Heights, TerrainPlugin, TerrainSettings, TileHeightsRebuilt};
 
 
 fn main() {
@@ -21,9 +21,10 @@ fn main() {
     ));
 
     app.add_plugins(TerrainPlugin {
-        noise_settings: Some(TerrainNoiseLayers {
+        noise_settings: Some(TerrainNoiseSettings {
+            splines: vec![],
             layers: vec![
-                TerrainNoiseLayer { amplitude: 4.0, frequency: 1.0 / 30.0, seed: 2 }
+                TerrainNoiseDetailLayer { amplitude: 4.0, frequency: 1.0 / 30.0, seed: 2 }
             ],
         }),
         terrain_settings: TerrainSettings {

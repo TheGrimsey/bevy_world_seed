@@ -18,6 +18,7 @@ default = ["rendering"]
 bevy = { version = "0.14", default-features = false }
 fixedbitset = "0.5"
 noise = { version = "0.9", default-features = false }
+splines = "4.3.1"
 
 [dev-dependencies]
 criterion = { version = "0.5" }

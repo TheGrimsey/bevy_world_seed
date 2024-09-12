@@ -1,8 +1,9 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
-use bevy::{app::{App, Startup}, asset::{AssetMode, AssetPlugin, AssetServer}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, PluginGroup, Commands, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup}, asset::{AssetMode, AssetPlugin, AssetServer}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator}, terrain::Terrain, TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator}, noise::{TerrainNoiseSplineLayer, TerrainNoiseDetailLayer, TerrainNoiseSettings}, terrain::Terrain, TerrainPlugin, TerrainSettings};
+use splines::{Interpolation, Key, Spline};
 
 
 fn main() {
@@ -17,17 +18,52 @@ fn main() {
         FrameTimeDiagnosticsPlugin
     ));
 
+    // Continental-ness.
+    let spline = Spline::from_iter([
+        Key::new(0.0, 45.0, Interpolation::Cosine),
+        Key::new(0.1, 0.0, Interpolation::Cosine),
+        Key::new(0.2, 0.0, Interpolation::Cosine),
+        Key::new(0.35, 25.0, Interpolation::Cosine),
+        Key::new(0.45, 40.0, Interpolation::Cosine),
+        Key::new(0.50, 45.0, Interpolation::Cosine),
+        Key::new(0.70, 54.0, Interpolation::Cosine),
+        Key::new(0.80, 60.0, Interpolation::Cosine),
+        Key::new(1.0, 60.0, Interpolation::default()),
+    ].into_iter());
+
+    // Peaks & Valleys
+    let peaks_n_valleys = Spline::from_iter([
+        Key::new(0.0, -40.0, Interpolation::Cosine),
+        Key::new(0.15, -20.0, Interpolation::Cosine),
+        Key::new(0.3, 00.0, Interpolation::Cosine),
+        Key::new(0.60, 40.0, Interpolation::Cosine),
+        Key::new(0.90, 60.0, Interpolation::Cosine),
+        Key::new(1.0, 100.0, Interpolation::default()),
+    ].into_iter());
+
     app.add_plugins(TerrainPlugin {
-        noise_settings: Some(TerrainNoiseLayers {
+        noise_settings: Some(TerrainNoiseSettings {
+            splines: vec![
+                TerrainNoiseSplineLayer {
+                    amplitude_spline: spline,
+                    frequency: 0.001,
+                    seed: 5
+                },
+                TerrainNoiseSplineLayer {
+                    amplitude_spline: peaks_n_valleys,
+                    frequency: 0.001,
+                    seed: 6
+                }
+            ],
             layers: vec![
-                TerrainNoiseLayer { amplitude: 8.0, frequency: 0.01, seed: 3 },
-                TerrainNoiseLayer { amplitude: 4.0, frequency: 0.02, seed: 1 },
-                TerrainNoiseLayer { amplitude: 2.0, frequency: 0.04, seed: 2 },
+                TerrainNoiseDetailLayer { amplitude: 4.0, frequency: 0.01, seed: 3 },
+                TerrainNoiseDetailLayer { amplitude: 2.0, frequency: 0.02, seed: 1 },
+                TerrainNoiseDetailLayer { amplitude: 1.0, frequency: 0.04, seed: 2 },
             ],
         }),
         terrain_settings: TerrainSettings {
-            tile_size_power: NonZeroU8::new(6).unwrap(),
-            edge_points: 65,
+            tile_size_power: NonZeroU8::new(7).unwrap(),
+            edge_points: 129,
             max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
             max_spline_simplification_distance: 3.0
         },

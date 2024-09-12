@@ -4,15 +4,15 @@
 use std::num::NonZeroU8;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectDefault, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
+    app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
 };
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
 use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
-use noise::{NoiseFn, Simplex};
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TerrainSplineShape, ModifierAabb, TileToModifierMapping};
+use noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_to_line_segment, index_to_x_z};
 
@@ -26,6 +26,8 @@ mod meshing;
 #[cfg(feature = "rendering")]
 pub mod material;
 
+pub mod noise;
+
 pub mod utils;
 
 /// System sets containing the crate's systems.
@@ -34,10 +36,8 @@ pub enum TerrainSets {
     Modifiers,
     Heights,
 }
-
-
 pub struct TerrainPlugin {
-    pub noise_settings: Option<TerrainNoiseLayers>,
+    pub noise_settings: Option<TerrainNoiseSettings>,
     pub terrain_settings: TerrainSettings,
     #[cfg(feature = "rendering")]
     pub texturing_settings: TerrainTexturingSettings,
@@ -87,8 +87,6 @@ impl Plugin for TerrainPlugin {
 
             .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
-            .register_type::<TerrainNoiseLayer>()
-            .register_type::<TerrainNoiseLayers>()
             .register_type::<ModifierAabb>()
             .register_type::<TerrainSplineProperties>()
             .register_type::<Terrain>()
@@ -96,78 +94,17 @@ impl Plugin for TerrainPlugin {
             .register_type::<ModifierHeightOperation>()
             .register_type::<ModifierPriority>()
             .register_type::<ModifierStrengthLimitProperty>()
+            .register_type::<ModifierFalloffProperty>()
+            .register_type::<ModifierHeightProperties>()
 
             .add_event::<RebuildTile>()
             .add_event::<TileHeightsRebuilt>();
-    }
-}
 
-/// Cache of Simplex noise instances & which seeds they map to.
-#[derive(Default)]
-pub struct NoiseCache {
-    /// Seeds of the simplex noises.
-    /// 
-    /// These are separated from the noises for cache coherency. Simplex is a big struct.
-    seeds: Vec<u32>,
-    noises: Vec<Simplex>
-}
-impl NoiseCache {
-    fn get(&mut self, seed: u32) -> &Simplex {
-        if let Some(index) = self.seeds.iter().position(|existing_seed| *existing_seed == seed) {
-            &self.noises[index]
-        } else {
-            self.seeds.push(seed);
-            self.noises.push(Simplex::new(seed));
-    
-            self.noises.last().unwrap()
+        {
+            app
+                .register_type::<TerrainNoiseDetailLayer>()
+                .register_type::<TerrainNoiseSettings>();
         }
-    }
-}
-
-#[derive(Reflect, Clone)]
-#[reflect(Default)]
-pub struct TerrainNoiseLayer {
-    /// Amplitude of the noise.
-    /// 
-    /// Increasing this increases the variance of terrain heights from this layer. 
-    pub amplitude: f32,
-    /// Scale of the noise on the XZ-plane. 
-    /// 
-    /// Increasing this causes the value to change quicker. Lower frequency means smoother changes in height.
-    pub frequency: f32,
-    /// Seed for the noise function.
-    pub seed: u32,
-}
-impl TerrainNoiseLayer {
-    /// Sample noise at the x & z coordinates.
-    /// 
-    /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
-    /// It is not contained within the noise layer to keep the size of a layer smaller.
-    pub fn sample(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
-        noise.get([(x * self.frequency) as f64, (z  * self.frequency) as f64]) as f32 * self.amplitude
-    }
-}
-impl Default for TerrainNoiseLayer {
-    fn default() -> Self {
-        Self { amplitude: 1.0, frequency: 1.0, seed: 1 }
-    }
-}
-
-
-/// Noise layers to be applied to Terrain tiles.
-#[derive(Resource, Reflect, Clone, Default)]
-#[reflect(Resource)]
-pub struct TerrainNoiseLayers {
-    pub layers: Vec<TerrainNoiseLayer>
-}
-impl TerrainNoiseLayers {
-    /// Samples noise height at the position.
-    /// 
-    /// Returns 0.0 if there are no noise layers.
-    pub fn sample_position(&self, noise_cache: &mut NoiseCache, pos: Vec2) -> f32 {
-        self.layers.iter().fold(0.0, |acc, layer| {
-            acc + layer.sample(pos.x, pos.y, noise_cache.get(layer.seed))
-        })
     }
 }
 
@@ -204,7 +141,7 @@ pub struct TileHeightsRebuilt(pub IVec2);
 pub struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
-    terrain_noise_layers: Res<TerrainNoiseLayers>,
+    terrain_noise_layers: Option<Res<TerrainNoiseSettings>>,
     shape_modifier_query: Query<(&ShapeModifier, &ModifierHeightProperties, Option<&ModifierStrengthLimitProperty>, Option<&ModifierFalloffProperty>, AnyOf<(&ModifierHeightOperation, &ModifierHoleOperation)>, &GlobalTransform)>,
     spline_query: Query<(&TerrainSplineCached, &TerrainSplineProperties, Option<&ModifierStrengthLimitProperty>)>,
     mut heights: Query<(&mut Heights, &mut Holes)>,
@@ -247,7 +184,7 @@ fn update_terrain_heights(
             holes.0.clear();
     
             // First, set by noise.
-            if !terrain_noise_layers.layers.is_empty() {
+            if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref() {
                 let _span = info_span!("Apply noise").entered();
                 for (i, val) in heights.0.iter_mut().enumerate() {
                     let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
@@ -373,7 +310,7 @@ fn update_terrain_heights(
     }
 }
 
-fn apply_modifier(modifier_properties: &ModifierHeightProperties, operation: &ModifierHeightOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut Local<NoiseCache>, set_with_position_y: bool) -> f32 {
+fn apply_modifier(modifier_properties: &ModifierHeightProperties, operation: &ModifierHeightOperation, vertex_position: Vec2, shape_translation: Vec2, val: f32, global_transform: &GlobalTransform, strength: f32, noise_cache: &mut NoiseCache, set_with_position_y: bool) -> f32 {
     let mut new_val = match operation {
         ModifierHeightOperation::Set => {
             // Relative position so we can apply the rotation from the shape modifier. This gets us tilted circles.

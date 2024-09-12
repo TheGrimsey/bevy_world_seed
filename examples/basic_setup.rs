@@ -2,7 +2,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, terrain::Terrain,TerrainNoiseLayer, TerrainNoiseLayers, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, terrain::Terrain, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -13,9 +13,10 @@ fn main() {
     ));
 
     app.add_plugins(TerrainPlugin {
-        noise_settings: Some(TerrainNoiseLayers {
+        noise_settings: Some(TerrainNoiseSettings {
+            splines: vec![],
             layers: vec![
-                TerrainNoiseLayer { amplitude: 6.0, frequency: 1.0 / 30.0, seed: 1 }
+                TerrainNoiseDetailLayer { amplitude: 6.0, frequency: 1.0 / 30.0, seed: 1 }
             ],
         }),
         terrain_settings: TerrainSettings {
