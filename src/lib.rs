@@ -14,7 +14,7 @@ use meshing::TerrainMeshingPlugin;
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TerrainSplineShape, ModifierAabb, TileToModifierMapping};
 use noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
-use utils::{distance_to_line_segment, index_to_x_z};
+use utils::{distance_squared_to_line_segment, index_to_x_z};
 
 pub mod modifiers;
 pub mod terrain;
@@ -288,7 +288,7 @@ fn update_terrain_heights(
                                 let a_2d = points[0].xz();
                                 let b_2d = points[1].xz();
             
-                                let (new_distance, t) = distance_to_line_segment(a_2d, b_2d, vertex_position);
+                                let (new_distance, t) = distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
             
                                 if new_distance < distance {
                                     distance = new_distance;

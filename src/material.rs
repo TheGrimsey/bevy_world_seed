@@ -16,9 +16,9 @@ use bevy::{
 };
 
 use crate::{
-    distance_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
+    distance_squared_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
         ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TileToModifierMapping
-    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position, get_normal_at_position, index_to_x_z}, Heights, TerrainSets, TerrainSettings
+    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z}, Heights, TerrainSets, TerrainSettings
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
@@ -37,7 +37,6 @@ impl Plugin for TerrainTexturingPlugin {
             .register_type::<GlobalTexturingRules>()
         ;
 
-        
         load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
 
         app.add_systems(
@@ -412,7 +411,7 @@ fn update_terrain_texture_maps(
                         let local_x = x_f - x_f.round();
                         let local_z = z_f - z_f.round();
 
-                        let height_at_position = unsafe { get_height_at_position(
+                        let height_at_position = unsafe { get_height_at_position_in_quad(
                             *heights.0.get_unchecked(vertex_a),
                             *heights.0.get_unchecked(vertex_b),
                             *heights.0.get_unchecked(vertex_c),
@@ -421,7 +420,7 @@ fn update_terrain_texture_maps(
                             local_z,
                         )};
 
-                        let normal_at_position = unsafe { get_normal_at_position(
+                        let normal_at_position = unsafe { get_normal_at_position_in_quad(
                             (*normals.get_unchecked(vertex_a)).into(),
                             (*normals.get_unchecked(vertex_b)).into(),
                             (*normals.get_unchecked(vertex_c)).into(),
@@ -560,7 +559,7 @@ fn update_terrain_texture_maps(
                                 let a_2d = points[0].xz();
                                 let b_2d = points[1].xz();
             
-                                let (new_distance, _) = distance_to_line_segment(a_2d, b_2d, vertex_position);
+                                let (new_distance, _) = distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
             
                                 if new_distance < distance {
                                     distance = new_distance;
