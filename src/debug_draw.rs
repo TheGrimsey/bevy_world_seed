@@ -9,12 +9,7 @@ use bevy::{
     reflect::Reflect,
 };
 
-use crate::{
-    modifiers::{
-        ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, ModifierAabb
-    },
-    TerrainSettings,
-};
+use crate::modifiers::{ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached};
 
 pub struct TerrainDebugDrawPlugin;
 impl Plugin for TerrainDebugDrawPlugin {
@@ -23,7 +18,7 @@ impl Plugin for TerrainDebugDrawPlugin {
             Update,
             debug_draw_terrain_modifiers.run_if(|draw_debug: Res<TerrainDebugDraw>| draw_debug.0),
         )
-        .insert_resource(TerrainDebugDraw(true))
+        .insert_resource(TerrainDebugDraw(false))
         .register_type::<TerrainDebugDraw>();
     }
 }
@@ -37,14 +32,12 @@ fn debug_draw_terrain_modifiers(
     spline_query: Query<(
         &TerrainSplineCached,
         &TerrainSplineProperties,
-        &ModifierAabb,
     )>,
     shape_query: Query<(&ShapeModifier, Option<&ModifierFalloffProperty>, &GlobalTransform)>,
-    terrain_settings: Res<TerrainSettings>,
 ) {
     spline_query
         .iter()
-        .for_each(|(spline, spline_properties, terrain_abb)| {
+        .for_each(|(spline, spline_properties)| {
             for (a, b) in spline.points.iter().zip(spline.points.iter().skip(1)) {
                 gizmos.line(*a, *a + Vec3::Y, Color::from(BLUE));
 
@@ -52,31 +45,16 @@ fn debug_draw_terrain_modifiers(
 
                 let distance = a.distance(*b);
 
+                let forward = *b - *a;
+                let rotation = (-forward.x).atan2(-forward.z);
+
                 gizmos.rect(
                     a.lerp(*b, 0.5),
                     Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians())
-                        * Quat::from_axis_angle(Vec3::Z, 45.0_f32.to_radians()),
+                        * Quat::from_rotation_z(rotation),
                     Vec2::new(distance, spline_properties.width * 2.0),
                     Color::from(BLUE),
                 );
-
-                // Debug draw AABB.
-                for x in terrain_abb.min.x..=terrain_abb.max.x {
-                    for y in terrain_abb.min.y..=terrain_abb.max.y {
-                        gizmos.rect(
-                            Vec3::new(
-                                (x << terrain_settings.tile_size_power.get()) as f32
-                                    + terrain_settings.tile_size() / 2.0,
-                                0.0,
-                                (y << terrain_settings.tile_size_power.get()) as f32
-                                    + terrain_settings.tile_size() / 2.0,
-                            ),
-                            Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                            Vec2::splat(terrain_settings.tile_size()),
-                            Color::from(BLUE),
-                        );
-                    }
-                }
             }
         });
 

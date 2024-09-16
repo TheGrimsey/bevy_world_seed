@@ -34,6 +34,9 @@ required-features = ["rendering"]
 name = "many_tiles"
 required-features = ["rendering"]
 
+[[example]]
+name = "terrain_collider"
+required-features = ["rendering"]
 
 [[bench]]
 name = "math"

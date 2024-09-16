@@ -19,9 +19,6 @@ This crate does not include colliders as managing different versions of physics 
 
 ### Modifiers
 
-- [X] Holes!
-
-*Terrain needs holes so you can move into caves and stuff.*
 
 ### Distant future
 

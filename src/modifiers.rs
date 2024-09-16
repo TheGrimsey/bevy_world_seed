@@ -1,11 +1,8 @@
 use bevy::{
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
+    math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
         Bundle, Changed, Component, CubicCurve, Entity, EventReader, EventWriter, GlobalTransform,
         Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle,
-    },
-    reflect::Reflect,
-    utils::HashMap,
+    }, reflect::Reflect, utils::HashMap
 };
 
 use crate::{noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
@@ -164,20 +161,30 @@ pub(super) fn update_terrain_spline_cache(
         |(mut spline_cached, spline, spline_properties, global_transform)| {
             spline_cached.points.clear();
 
-            spline_cached.points.extend(
-                spline
-                    .curve
-                    .iter_positions(80)
-                    .map(|point| global_transform.transform_point(point)),
-            );
-
             // Filter points that are very close together.
             let dedup_distance = (spline_properties.width * spline_properties.width)
                 .min(terrain_settings.max_spline_simplification_distance);
 
+            // We need to figure out a subdivision amount that gives us close enough points.
+            // Can't put this too low or some winding paths might break.
+            let mut subdivisions = 20;
+
+            // Check so all points are close enough to the next.
+            while spline.curve.iter_positions(subdivisions).zip(spline.curve.iter_positions(subdivisions).skip(1)).any(|(a,b)| a.distance_squared(b) > dedup_distance * 1.5) {
+                subdivisions = (subdivisions as f32 * 1.2) as usize; 
+            }
+
+            spline_cached.points.extend(
+                spline
+                    .curve
+                    .iter_positions(subdivisions)
+                    .map(|point| global_transform.transform_point(point)),
+            );
+            
             spline_cached
                 .points
                 .dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
+        
         },
     );
 }

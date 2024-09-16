@@ -6,6 +6,7 @@ use std::num::NonZeroU8;
 use bevy::{
     app::{App, Plugin, PostUpdate}, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, Resource, SystemSet, TransformSystem}, reflect::Reflect, transform::components::GlobalTransform
 };
+#[cfg(feature = "rendering")]
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
 use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
