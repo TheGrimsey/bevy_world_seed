@@ -17,6 +17,15 @@ This crate does not include colliders as managing different versions of physics 
 
 *Component for snapping an entity to the height of terrain at it's XZ position whenever the tile is rebuilt. Should also include a height offset.*
 
+### Generation
+
+- [ ] Feature Placement
+
+*Placing things like trees & rocks. Should have conditions (don't place above X height, etc). Probably using scenes Needs a "exclusion zone" thing to stop from spawning in certain areas as well.*
+
+- [ ] Biome Mapping
+*Mapping a place to a biome, the active biome should be usable as a condition for texturing and terrain rules.*
+
 ### Modifiers
 
 
