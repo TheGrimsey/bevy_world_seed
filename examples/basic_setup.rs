@@ -1,8 +1,8 @@
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::NonZeroU8;
 
-use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, terrain::Terrain, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, snap_to_terrain::SnapToTerrain, terrain::Terrain, TerrainPlugin, TerrainSettings};
 
 fn main() {
     let mut app = App::new();
@@ -25,10 +25,10 @@ fn main() {
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
             max_spline_simplification_distance: 3.0
         },
-        texturing_settings: TerrainTexturingSettings {
-            texture_resolution_power: 6,
-            max_tile_updates_per_frame: NonZeroU32::new(2).unwrap(),
-        },
+        texturing_settings: Some(TerrainTexturingSettings {
+            texture_resolution_power: NonZeroU8::new(6).unwrap(),
+            max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
+        }),
         debug_draw: true
     });
 
@@ -81,6 +81,7 @@ fn spawn_terrain(
         Vec3::new(20.0, 1.0, 20.0),
     ]).to_curve();
 
+    // Spawn a spline modifier that also applies a texture.
     commands.spawn((
         TerrainSplineBundle {
             tile_aabb: ModifierAabb::default(),
@@ -104,6 +105,7 @@ fn spawn_terrain(
         Name::new("Spline"),
     ));
 
+    // Spawn a circle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
@@ -127,7 +129,7 @@ fn spawn_terrain(
         Name::new("Modifier (Circle)")
     ));
 
-    
+    // Spawn a circle hole punching modifier.
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
@@ -147,6 +149,7 @@ fn spawn_terrain(
         Name::new("Modifier (Circle Hole)")
     ));
 
+    // Spawn a rectangle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
@@ -171,6 +174,20 @@ fn spawn_terrain(
         Name::new("Modifier (Rectangle)")
     ));
 
+    // Spawn a cube that snaps to terrain height.
+    commands.spawn((
+        PbrBundle {
+            mesh: todo!(),
+            material: todo!(),
+            transform: Transform::from_translation(Vec3::new(32.0, 0.0, 32.0)),
+            ..default()
+        },
+        SnapToTerrain {
+            y_offset: -0.05,
+        }
+    ));
+
+    // Spawn terrain tiles.
     commands.spawn((
         Terrain::default(),
         TransformBundle::default(),

@@ -1,4 +1,4 @@
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::NonZeroU8;
 
 use bevy::{app::{App, Startup}, asset::{AssetMode, AssetPlugin, AssetServer}, color::Color, core::Name, diagnostic::FrameTimeDiagnosticsPlugin, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle}, prelude::{default, Commands, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
@@ -67,10 +67,10 @@ fn main() {
             max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
             max_spline_simplification_distance: 3.0
         },
-        texturing_settings: TerrainTexturingSettings {
-            texture_resolution_power: 6,
-            max_tile_updates_per_frame: NonZeroU32::new(4).unwrap(),
-        },
+        texturing_settings: Some(TerrainTexturingSettings {
+            texture_resolution_power: NonZeroU8::new(6).unwrap(),
+            max_tile_updates_per_frame: NonZeroU8::new(4).unwrap(),
+        }),
         debug_draw: true
     });
 

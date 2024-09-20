@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::num::NonZeroU8;
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
@@ -59,13 +59,13 @@ pub struct TerrainTexturingSettings {
     /// Each step this is increased results in a 4x increase in RAM & VRAM usage.
     ///
     /// Setting this equal to [`TerrainSettings::tile_size_power`] would mean textures can change every 1m.
-    pub texture_resolution_power: u8,
+    pub texture_resolution_power: NonZeroU8,
 
-    pub max_tile_updates_per_frame: NonZeroU32,
+    pub max_tile_updates_per_frame: NonZeroU8,
 }
 impl TerrainTexturingSettings {
     pub fn resolution(&self) -> u32 {
-        1 << self.texture_resolution_power as u32
+        1 << self.texture_resolution_power.get() as u32
     }
 }
 
@@ -406,11 +406,10 @@ fn update_terrain_texture_maps(
                         let vertex_c = vertex_a + terrain_settings.edge_points as usize;
                         let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
 
-                        // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
-
                         let local_x = x_f - x_f.round();
                         let local_z = z_f - z_f.round();
 
+                        // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
                         let height_at_position = unsafe { get_height_at_position_in_quad(
                             *heights.0.get_unchecked(vertex_a),
                             *heights.0.get_unchecked(vertex_b),

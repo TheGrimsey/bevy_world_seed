@@ -1,5 +1,7 @@
 use bevy::math::{Vec2, Vec3};
 
+use crate::{Heights, TerrainSettings};
+
 
 pub fn distance_squared_to_line_segment(v: Vec2, w: Vec2, p: Vec2) -> (f32, f32) {
     let vw = w - v;
@@ -21,6 +23,37 @@ pub fn distance_squared_to_line_segment(v: Vec2, w: Vec2, p: Vec2) -> (f32, f32)
 
     // Return the squared distance and the projection factor t
     (p.distance_squared(projection), t)
+}
+
+/// Returns the (interpolated) height at a position in a terrain tile.
+/// 
+/// If `relative_location` is outside the tile it will be clamped inside of it.
+pub fn get_height_at_position_in_tile(
+    relative_location: Vec2,
+    heights: &Heights,
+    terrain_settings: &TerrainSettings
+) -> f32 {
+    let normalized_position = (relative_location / terrain_settings.tile_size()).clamp(Vec2::ZERO, Vec2::splat(1.0 - f32::EPSILON));
+    
+    // Convert to point out vertex.
+    let vertex_space_position = normalized_position * terrain_settings.edge_points as f32;
+
+    let vertex_a =
+        (vertex_space_position.y as usize * terrain_settings.edge_points as usize) + vertex_space_position.x as usize;
+    let vertex_b = vertex_a + 1;
+    let vertex_c = vertex_a + terrain_settings.edge_points as usize;
+    let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
+
+    let quad_normalized_pos = vertex_space_position - vertex_space_position.round();
+
+    unsafe { get_height_at_position_in_quad(
+        *heights.0.get_unchecked(vertex_a),
+        *heights.0.get_unchecked(vertex_b),
+        *heights.0.get_unchecked(vertex_c),
+        *heights.0.get_unchecked(vertex_d),
+        quad_normalized_pos.x,
+        quad_normalized_pos.y,
+    )}
 }
 
 /// Returns the (interpolated) height at a position in a terrain quad made up of A, B, C, D points.

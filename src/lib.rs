@@ -14,6 +14,7 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 use meshing::TerrainMeshingPlugin;
 use modifiers::{update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache, update_tile_modifier_priorities, ModifierHoleOperation, ModifierFalloffProperty, ModifierHeightOperation, ModifierPriority, ModifierHeightProperties, ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TerrainSplineShape, ModifierAabb, TileToModifierMapping};
 use noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
+use snap_to_terrain::TerrainSnapToTerrainPlugin;
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_squared_to_line_segment, index_to_x_z};
 
@@ -26,6 +27,7 @@ mod debug_draw;
 mod meshing;
 #[cfg(feature = "rendering")]
 pub mod material;
+pub mod snap_to_terrain;
 
 pub mod noise;
 
@@ -41,17 +43,18 @@ pub struct TerrainPlugin {
     pub noise_settings: Option<TerrainNoiseSettings>,
     pub terrain_settings: TerrainSettings,
     #[cfg(feature = "rendering")]
-    pub texturing_settings: TerrainTexturingSettings,
+    pub texturing_settings: Option<TerrainTexturingSettings>,
     #[cfg(feature = "rendering")]
     pub debug_draw: bool
 }
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "rendering")]
-        {
+        if let Some(texturing_settings) = &self.texturing_settings {
             app.add_plugins((
                 TerrainMeshingPlugin,
-                TerrainTexturingPlugin(self.texturing_settings.clone()),
+                TerrainTexturingPlugin(texturing_settings.clone()),
+                TerrainSnapToTerrainPlugin
             ));
 
             if self.debug_draw {
@@ -138,7 +141,7 @@ struct RebuildTile(IVec2);
 #[derive(Event)]
 pub struct TileHeightsRebuilt(pub IVec2);
 
-#[derive(Component, Deref)]
+#[derive(Component, Deref, Debug)]
 pub struct Heights(Box<[f32]>);
 
 fn update_terrain_heights(
