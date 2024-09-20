@@ -86,7 +86,6 @@ fn test_circle_modifier_applies() {
         let tile = tile_to_terrain.get(&IVec2::ZERO).expect("Missing terrain tile in tile to terrain").first().unwrap();
 
         let heights = tiles_query.get(*tile).expect("Couldn't get tile entity.");
-        println!("{:?}", heights);
 
         assert_eq!(circle_height, get_height_at_position_in_tile(Vec2::splat(terrain_settings.tile_size() / 2.0), heights, &terrain_settings), "Center of circle modifier should set the height to {circle_height}.");
 
