@@ -1,4 +1,4 @@
-use bevy::{app::{App, Plugin, PostUpdate}, ecs::entity::EntityHashSet, math::{IVec2, Vec3Swizzles}, prelude::{any_with_component, on_event, Changed, Commands, Component, Entity, EventReader, GlobalTransform, IntoSystemConfigs, Query, Res, ResMut, Resource, Transform, TransformSystem, Without}, utils::HashMap};
+use bevy::{app::{App, Plugin, PostUpdate}, ecs::entity::EntityHashSet, math::{IVec2, Vec3Swizzles}, prelude::{any_with_component, on_event, ReflectComponent, Changed, Commands, Component, Entity, EventReader, GlobalTransform, IntoSystemConfigs, Query, Res, ResMut, Resource, Transform, TransformSystem, Without}, reflect::Reflect, utils::HashMap};
 
 use crate::{terrain::TileToTerrain, utils::get_height_at_position_in_tile, Heights, TerrainSettings, TileHeightsRebuilt};
 
@@ -16,13 +16,16 @@ impl Plugin for TerrainSnapToTerrainPlugin {
         ).chain().run_if(any_with_component::<SnapToTerrain>).after(TransformSystem::TransformPropagate));
         
         app.init_resource::<TileToSnapEntities>();
+
+        app.register_type::<SnapToTerrain>().register_type::<SnapEntityTile>();
     }
 }
 
 /// Causes the entity to snap to the height of terrain.
 /// 
 /// Entities are snapped when the component is added or the tile is updated.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct SnapToTerrain {
     /// Offset to apply to the y of the entity.
     /// 
@@ -30,7 +33,8 @@ pub struct SnapToTerrain {
     pub y_offset: f32
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 struct SnapEntityTile(IVec2);
 
 #[derive(Resource, Default)]

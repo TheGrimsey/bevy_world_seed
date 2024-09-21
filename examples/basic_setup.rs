@@ -1,6 +1,6 @@
 use std::num::NonZeroU8;
 
-use bevy::{app::{App, Startup}, asset::AssetServer, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{app::{App, Startup}, asset::{AssetServer, Assets}, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Cuboid, Mesh, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
 use bevy_editor_pls::EditorPlugin;
 use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, snap_to_terrain::SnapToTerrain, terrain::Terrain, TerrainPlugin, TerrainSettings};
 
@@ -62,6 +62,8 @@ fn spawn_terrain(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     terrain_settings: Res<TerrainSettings>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
@@ -177,14 +179,15 @@ fn spawn_terrain(
     // Spawn a cube that snaps to terrain height.
     commands.spawn((
         PbrBundle {
-            mesh: todo!(),
-            material: todo!(),
+            mesh: meshes.add(Cuboid::from_size(Vec3::ONE)),
+            material: materials.add(Color::srgb(0.3, 0.3, 0.9)),
             transform: Transform::from_translation(Vec3::new(32.0, 0.0, 32.0)),
             ..default()
         },
         SnapToTerrain {
-            y_offset: -0.05,
-        }
+            y_offset: 0.5,
+        },
+        Name::new("Snap To Terrain")
     ));
 
     // Spawn terrain tiles.
