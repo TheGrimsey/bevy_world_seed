@@ -1,7 +1,8 @@
 use bevy::{
     math::{IVec2, Vec3Swizzles},
     prelude::{
-        Changed, Commands, Component, Deref, DetectChanges, Entity, EventWriter, GlobalTransform, Query, ReflectComponent, Res, ResMut, Resource, With, Without
+        Changed, Commands, Component, Deref, DetectChanges, Entity, EventWriter, GlobalTransform,
+        Query, ReflectComponent, Res, ResMut, Resource, With, Without,
     },
     reflect::Reflect,
     utils::HashMap,
@@ -16,9 +17,9 @@ use crate::{utils::index_to_x_z, Heights, RebuildTile, TerrainSettings};
 pub struct Holes(pub(super) FixedBitSet);
 impl Holes {
     /// Returns an iterator of every hole cell in the terrain.
-    /// 
+    ///
     /// Cells may be returned multiple times.
-    /// 
+    ///
     /// This can be used to set the holes in a parry Heightfield.
     pub fn iter_holes(&self, edge_points: u16) -> impl Iterator<Item = HoleEntry> + '_ {
         self.0.ones().flat_map(move |i| {
@@ -29,34 +30,29 @@ impl Holes {
                     x: x as u16,
                     z: z as u16,
                     left_triangle_removed: true,
-                    right_triangle_removed: false
+                    right_triangle_removed: false,
                 }),
-                (x > 0).then(|| 
-                    HoleEntry {
-                        x: (x - 1) as u16,
-                        z: z as u16,
-                        left_triangle_removed: true,
-                        right_triangle_removed: true
-                    }
-                ),
-                (x > 0 && z > 0).then(|| 
-                    HoleEntry {
-                        x: (x - 1) as u16,
-                        z: (z - 1) as u16,
-                        left_triangle_removed: false,
-                        right_triangle_removed: true
-                    }
-                ),
-                (z > 0).then(|| 
-                    HoleEntry {
-                        x: x as u16,
-                        z: (z - 1) as u16,
-                        left_triangle_removed: true,
-                        right_triangle_removed: true
-                    }
-                ),
-                
-            ].into_iter().flatten()
+                (x > 0).then(|| HoleEntry {
+                    x: (x - 1) as u16,
+                    z: z as u16,
+                    left_triangle_removed: true,
+                    right_triangle_removed: true,
+                }),
+                (x > 0 && z > 0).then(|| HoleEntry {
+                    x: (x - 1) as u16,
+                    z: (z - 1) as u16,
+                    left_triangle_removed: false,
+                    right_triangle_removed: true,
+                }),
+                (z > 0).then(|| HoleEntry {
+                    x: x as u16,
+                    z: (z - 1) as u16,
+                    left_triangle_removed: true,
+                    right_triangle_removed: true,
+                }),
+            ]
+            .into_iter()
+            .flatten()
         })
     }
 }
@@ -66,7 +62,7 @@ pub struct HoleEntry {
     pub x: u16,
     pub z: u16,
     pub left_triangle_removed: bool,
-    pub right_triangle_removed: bool
+    pub right_triangle_removed: bool,
 }
 
 #[derive(Component, Reflect, Debug, Default)]
@@ -81,14 +77,14 @@ pub struct TileToTerrain(pub(super) HashMap<IVec2, Vec<Entity>>);
 pub(super) fn insert_components(
     mut commands: Commands,
     terrain_settings: Res<TerrainSettings>,
-    query: Query<Entity, (With<Terrain>, Without<Heights>, Without<Holes>)>
+    query: Query<Entity, (With<Terrain>, Without<Heights>, Without<Holes>)>,
 ) {
     let heights = terrain_settings.edge_points as usize * terrain_settings.edge_points as usize;
 
     query.iter().for_each(|entity| {
         commands.entity(entity).insert((
             Heights(vec![0.0; heights].into_boxed_slice()),
-            Holes(FixedBitSet::with_capacity(heights))
+            Holes(FixedBitSet::with_capacity(heights)),
         ));
     });
 }
@@ -102,8 +98,8 @@ pub(super) fn update_tiling(
     query
         .iter_mut()
         .for_each(|(entity, mut terrain_coordinate, global_transform)| {
-            let coordinate =
-                global_transform.translation().xz().as_ivec2() >> terrain_setttings.tile_size_power.get();
+            let coordinate = global_transform.translation().xz().as_ivec2()
+                >> terrain_setttings.tile_size_power.get();
 
             if terrain_coordinate.is_added() || terrain_coordinate.0 != coordinate {
                 if let Some(entries) = tile_to_terrain.0.get_mut(&terrain_coordinate.0) {

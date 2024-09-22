@@ -1,14 +1,17 @@
 use bevy::{
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
+    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
+    prelude::{
         Bundle, Changed, Component, CubicCurve, Entity, EventReader, EventWriter, GlobalTransform,
         Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle,
-    }, reflect::Reflect, utils::HashMap
+    },
+    reflect::Reflect,
+    utils::HashMap,
 };
 
 use crate::{noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
 
 /// Bundle containing all the base components required for a Shape Modifier to function.
-/// 
+///
 /// It additionally needs an Operation and optionally properties.
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
@@ -28,8 +31,8 @@ pub enum ShapeModifier {
 }
 
 /// Determines the falloff distance for operations.
-/// 
-/// Affects the strength falloff of height & texture operators 
+///
+/// Affects the strength falloff of height & texture operators
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct ModifierFalloffProperty(pub f32);
@@ -43,7 +46,10 @@ pub struct ModifierHeightProperties {
 }
 impl Default for ModifierHeightProperties {
     fn default() -> Self {
-        Self { allow_raising: true, allow_lowering: true }
+        Self {
+            allow_raising: true,
+            allow_lowering: true,
+        }
     }
 }
 
@@ -70,13 +76,12 @@ pub enum ModifierHeightOperation {
 #[reflect(Component)]
 pub struct ModifierHoleOperation {
     /// When true, fill in holes instead of creating them.
-    pub invert: bool
+    pub invert: bool,
 }
 
-
 /// Clamps the max strength of a modifier to this value.
-/// 
-/// Use if you want to only blend the modifier in a bit. 
+///
+/// Use if you want to only blend the modifier in a bit.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct ModifierStrengthLimitProperty(pub f32);
@@ -119,8 +124,8 @@ pub struct TerrainSplineProperties {
 }
 
 /// Cache of points used when updating tiles.
-/// 
-/// Automatically updated when the terrain spline changes. 
+///
+/// Automatically updated when the terrain spline changes.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct TerrainSplineCached {
@@ -130,7 +135,7 @@ pub struct TerrainSplineCached {
 pub(super) struct TileModifierEntry {
     pub(super) entity: Entity,
     /// Acts as a 8x8 map telling us where in the tile this modifier has an effect.
-    /// 
+    ///
     /// Allows us to skip checking modifiers for points that don't overlap, giving speed ups depending on how big the modifier is relative to the tile.
     pub(super) overlap_bits: u64,
 }
@@ -170,8 +175,13 @@ pub(super) fn update_terrain_spline_cache(
             let mut subdivisions = 20;
 
             // Check so all points are close enough to the next.
-            while spline.curve.iter_positions(subdivisions).zip(spline.curve.iter_positions(subdivisions).skip(1)).any(|(a,b)| a.distance_squared(b) > dedup_distance * 1.5) {
-                subdivisions = (subdivisions as f32 * 1.2) as usize; 
+            while spline
+                .curve
+                .iter_positions(subdivisions)
+                .zip(spline.curve.iter_positions(subdivisions).skip(1))
+                .any(|(a, b)| a.distance_squared(b) > dedup_distance * 1.5)
+            {
+                subdivisions = (subdivisions as f32 * 1.2) as usize;
             }
 
             spline_cached.points.extend(
@@ -180,11 +190,10 @@ pub(super) fn update_terrain_spline_cache(
                     .iter_positions(subdivisions)
                     .map(|point| global_transform.transform_point(point)),
             );
-            
+
             spline_cached
                 .points
                 .dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
-        
         },
     );
 }
@@ -254,10 +263,12 @@ pub(super) fn update_terrain_spline_aabb(
                         let a_2d = a.xz() - tile_world;
                         let b_2d = b.xz() - tile_world;
 
-                        let min =
-                            a_2d.min(b_2d) - spline_properties.width - spline_properties.falloff.max(f32::EPSILON);
-                        let max =
-                            a_2d.max(b_2d) + spline_properties.width + spline_properties.falloff.max(f32::EPSILON);
+                        let min = a_2d.min(b_2d)
+                            - spline_properties.width
+                            - spline_properties.falloff.max(f32::EPSILON);
+                        let max = a_2d.max(b_2d)
+                            + spline_properties.width
+                            + spline_properties.falloff.max(f32::EPSILON);
 
                         let min_scaled = ((min / tile_size) * 7.0).as_ivec2();
                         let max_scaled = ((max / tile_size) * 7.0).as_ivec2();
@@ -324,9 +335,8 @@ pub(super) fn update_shape_modifier_aabb(
 ) {
     let tile_size = terrain_settings.tile_size();
 
-    query
-        .iter_mut()
-        .for_each(|(entity, shape, modifier_falloff, mut tile_aabb, global_transform)| {
+    query.iter_mut().for_each(
+        |(entity, shape, modifier_falloff, mut tile_aabb, global_transform)| {
             for x in tile_aabb.min.x..=tile_aabb.max.x {
                 for y in tile_aabb.min.y..=tile_aabb.max.y {
                     let tile = IVec2::new(x, y);
@@ -357,7 +367,9 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             };
 
-            let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.0).max(f32::EPSILON);
+            let falloff = modifier_falloff
+                .map_or(0.0, |falloff| falloff.0)
+                .max(f32::EPSILON);
             let min = min - falloff;
             let max = max + falloff;
 
@@ -411,7 +423,8 @@ pub(super) fn update_shape_modifier_aabb(
 
             tile_aabb.min = tile_min;
             tile_aabb.max = tile_max;
-        });
+        },
+    );
 }
 
 pub(super) fn update_tile_modifier_priorities(

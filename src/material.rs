@@ -7,21 +7,33 @@ use bevy::{
     math::{IVec2, Vec2, Vec3, Vec3Swizzles},
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
     prelude::{
-        default, Commands, Component, Entity, EventReader, GlobalTransform, Image, IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res, ResMut, Resource, Shader, With, Without
+        default, Commands, Component, Entity, EventReader, GlobalTransform, Image,
+        IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource,
+        Res, ResMut, Resource, Shader, With, Without,
     },
     reflect::Reflect,
     render::{
-        primitives::Aabb, render_asset::RenderAssetUsages, render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat}, texture::TextureFormatPixelInfo
+        primitives::Aabb,
+        render_asset::RenderAssetUsages,
+        render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
+        texture::TextureFormatPixelInfo,
     },
 };
 
 use crate::{
-    distance_squared_to_line_segment, meshing::TerrainMeshRebuilt, modifiers::{
-        ModifierFalloffProperty, ShapeModifier, TerrainSplineProperties, TerrainSplineCached, TileToModifierMapping
-    }, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z}, Heights, TerrainSets, TerrainSettings
+    distance_squared_to_line_segment,
+    meshing::TerrainMeshRebuilt,
+    modifiers::{
+        ModifierFalloffProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
+        TileToModifierMapping,
+    },
+    terrain::{Terrain, TileToTerrain},
+    utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z},
+    Heights, TerrainSets, TerrainSettings,
 };
 
-pub const TERRAIN_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(138167552981664683109966343978676199666);
+pub const TERRAIN_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(138167552981664683109966343978676199666);
 
 pub struct TerrainTexturingPlugin(pub TerrainTexturingSettings);
 impl Plugin for TerrainTexturingPlugin {
@@ -34,10 +46,14 @@ impl Plugin for TerrainTexturingPlugin {
         app.register_asset_reflect::<TerrainMaterialExtended>()
             .register_type::<TextureModifierOperation>()
             .register_type::<TextureModifierFalloffProperty>()
-            .register_type::<GlobalTexturingRules>()
-        ;
+            .register_type::<GlobalTexturingRules>();
 
-        load_internal_asset!(app, TERRAIN_SHADER_HANDLE, "terrain.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            TERRAIN_SHADER_HANDLE,
+            "terrain.wgsl",
+            Shader::from_wgsl
+        );
 
         app.add_systems(
             PostUpdate,
@@ -75,13 +91,13 @@ pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
     pub max_strength: f32,
     /// Represents the size of the texture in world units.
-    /// 
-    /// `1.0` means the texture will repeat every world unit. 
-    pub units_per_texture: f32
+    ///
+    /// `1.0` means the texture will repeat every world unit.
+    pub units_per_texture: f32,
 }
 
 /// Determines the falloff distance for texture operations.
-/// 
+///
 /// Overrides [`ModifierFalloffProperty`] if present.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -94,7 +110,7 @@ pub enum TexturingRuleEvaluator {
         /// Y above which the rule will apply at full strength in world units.
         height: f32,
         /// Falloff for strength below `height` in world units.
-        /// 
+        ///
         /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
@@ -103,7 +119,7 @@ pub enum TexturingRuleEvaluator {
         /// Y below which the rule will apply at full strength in world units.
         height: f32,
         /// Falloff for strength above `height` in world units.
-        /// 
+        ///
         /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
@@ -114,7 +130,7 @@ pub enum TexturingRuleEvaluator {
         /// Y above which the rule will apply at full strength in world units.
         min_height: f32,
         /// Falloff for strength above `max_height` & below `min_height` in world units.
-        /// 
+        ///
         /// Texture strength will linearly reduce for this distance.
         falloff: f32,
     },
@@ -123,7 +139,7 @@ pub enum TexturingRuleEvaluator {
         /// Angle in radians above which the rule will apply at full strength.
         angle_radians: f32,
         /// Falloff for strength below `angle_radians` in radians.
-        /// 
+        ///
         /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
     },
@@ -132,36 +148,52 @@ pub enum TexturingRuleEvaluator {
         /// Angle in radians below which the rule will apply at full strength.
         angle_radians: f32,
         /// Falloff for strength above `angle_radians` in radians.
-        /// 
+        ///
         /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
-    }
+    },
 }
 impl TexturingRuleEvaluator {
     pub fn eval(&self, height_at_position: f32, angle_at_position: f32) -> f32 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
-                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
+                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON))
+                    .clamp(0.0, 1.0)
             }
             TexturingRuleEvaluator::Below { height, falloff } => {
-                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
-            },
+                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
+                    .clamp(0.0, 1.0)
+            }
             TexturingRuleEvaluator::Between {
                 max_height,
                 min_height,
                 falloff,
             } => {
-                let strength_below = 1.0 - ((min_height - height_at_position).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
-                let strength_above = 1.0 - ((height_at_position - max_height).max(0.0) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0);
-                
+                let strength_below = 1.0
+                    - ((min_height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
+                        .clamp(0.0, 1.0);
+                let strength_above = 1.0
+                    - ((height_at_position - max_height).max(0.0) / falloff.max(f32::EPSILON))
+                        .clamp(0.0, 1.0);
+
                 strength_below.min(strength_above)
-            },
-            TexturingRuleEvaluator::AngleGreaterThan { angle_radians, falloff_radians } => {
-                1.0 - ((angle_radians - angle_at_position).max(0.0) / falloff_radians.max(f32::EPSILON)).clamp(0.0, 1.0)
-            },
-            TexturingRuleEvaluator::AngleLessThan { angle_radians, falloff_radians } => {
-                1.0 - ((angle_at_position - angle_radians).max(0.0) / falloff_radians.max(f32::EPSILON)).clamp(0.0, 1.0)
-            },
+            }
+            TexturingRuleEvaluator::AngleGreaterThan {
+                angle_radians,
+                falloff_radians,
+            } => {
+                1.0 - ((angle_radians - angle_at_position).max(0.0)
+                    / falloff_radians.max(f32::EPSILON))
+                .clamp(0.0, 1.0)
+            }
+            TexturingRuleEvaluator::AngleLessThan {
+                angle_radians,
+                falloff_radians,
+            } => {
+                1.0 - ((angle_at_position - angle_radians).max(0.0)
+                    / falloff_radians.max(f32::EPSILON))
+                .clamp(0.0, 1.0)
+            }
         }
     }
 }
@@ -172,9 +204,9 @@ pub struct TexturingRule {
     /// The texture to apply with this rule.
     pub texture: Handle<Image>,
     /// Represents the size of the texture in world units.
-    /// 
-    /// `1.0` means the texture will repeat every world unit. 
-    pub units_per_texture: f32
+    ///
+    /// `1.0` means the texture will repeat every world unit.
+    pub units_per_texture: f32,
 }
 
 /// Defines the rules for procedural texturing.
@@ -201,21 +233,21 @@ pub(super) struct TerrainMaterial {
     #[texture(25)]
     #[sampler(26)]
     texture_b: Option<Handle<Image>>,
-    
+
     #[uniform(27)]
     texture_b_scale: f32,
 
     #[texture(28)]
     #[sampler(29)]
     texture_c: Option<Handle<Image>>,
-    
+
     #[uniform(30)]
     texture_c_scale: f32,
 
     #[texture(31)]
     #[sampler(32)]
     texture_d: Option<Handle<Image>>,
-    
+
     #[uniform(33)]
     texture_d_scale: f32,
 }
@@ -227,16 +259,37 @@ impl TerrainMaterial {
         self.texture_d = None;
     }
 
-    fn get_texture_slot(&mut self, image: &Handle<Image>, units_per_texture: f32, tile_size: f32) -> Option<usize> {
+    fn get_texture_slot(
+        &mut self,
+        image: &Handle<Image>,
+        units_per_texture: f32,
+        tile_size: f32,
+    ) -> Option<usize> {
         let scale = 1.0 / (units_per_texture / tile_size);
         // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
-        if self.texture_a.as_ref().is_some_and(|entry| entry == image && self.texture_a_scale == scale) {
+        if self
+            .texture_a
+            .as_ref()
+            .is_some_and(|entry| entry == image && self.texture_a_scale == scale)
+        {
             Some(0)
-        } else if self.texture_b.as_ref().is_some_and(|entry| entry == image && self.texture_b_scale == scale) {
+        } else if self
+            .texture_b
+            .as_ref()
+            .is_some_and(|entry| entry == image && self.texture_b_scale == scale)
+        {
             Some(1)
-        } else if self.texture_c.as_ref().is_some_and(|entry| entry == image && self.texture_c_scale == scale) {
+        } else if self
+            .texture_c
+            .as_ref()
+            .is_some_and(|entry| entry == image && self.texture_c_scale == scale)
+        {
             Some(2)
-        } else if self.texture_d.as_ref().is_some_and(|entry| entry == image && self.texture_d_scale == scale) {
+        } else if self
+            .texture_d
+            .as_ref()
+            .is_some_and(|entry| entry == image && self.texture_d_scale == scale)
+        {
             Some(3)
         } else if self.texture_a.is_none() {
             self.texture_a = Some(image.clone());
@@ -277,7 +330,7 @@ fn insert_texture_map(
     mut commands: Commands,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
-    query: Query<Entity, (With<Terrain>, Without<Handle<TerrainMaterialExtended>>)>
+    query: Query<Entity, (With<Terrain>, Without<Handle<TerrainMaterialExtended>>)>,
 ) {
     let resolution = texture_settings.resolution();
     let texture_format = TextureFormat::Rgba8Unorm;
@@ -307,25 +360,35 @@ fn insert_texture_map(
                 perceptual_roughness: 1.0,
                 ..default()
             },
-            extension: material
+            extension: material,
         });
 
-        commands.entity(entity).insert((
-            material_handle,
-            Aabb::default()
-        ));
+        commands
+            .entity(entity)
+            .insert((material_handle, Aabb::default()));
     });
 }
 
 fn update_terrain_texture_maps(
-    shape_modifier_query: Query<(&TextureModifierOperation, &ShapeModifier, Option<&ModifierFalloffProperty>, Option<&TextureModifierFalloffProperty>, &GlobalTransform)>,
+    shape_modifier_query: Query<(
+        &TextureModifierOperation,
+        &ShapeModifier,
+        Option<&ModifierFalloffProperty>,
+        Option<&TextureModifierFalloffProperty>,
+        &GlobalTransform,
+    )>,
     spline_query: Query<(
         &TextureModifierOperation,
         &TerrainSplineCached,
         &TerrainSplineProperties,
-        Option<&TextureModifierFalloffProperty>
+        Option<&TextureModifierFalloffProperty>,
     )>,
-    tiles_query: Query<(&Heights, &Handle<TerrainMaterialExtended>, &Handle<Mesh>, &Terrain)>,
+    tiles_query: Query<(
+        &Heights,
+        &Handle<TerrainMaterialExtended>,
+        &Handle<Mesh>,
+        &Terrain,
+    )>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
@@ -351,7 +414,7 @@ fn update_terrain_texture_maps(
     let resolution = texture_settings.resolution();
     let scale = tile_size / resolution as f32;
     let vertex_scale = (terrain_settings.edge_points - 1) as f32 / resolution as f32;
-    let inv_tile_size_scale =  scale * (7.0 / tile_size);
+    let inv_tile_size_scale = scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue
         .len()
@@ -385,11 +448,19 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 for rule in texturing_rules.rules.iter() {
-                    let Some(texture_channel) = material.extension.get_texture_slot(&rule.texture, rule.units_per_texture, tile_size) else {
+                    let Some(texture_channel) = material.extension.get_texture_slot(
+                        &rule.texture,
+                        rule.units_per_texture,
+                        tile_size,
+                    ) else {
                         info!("Hit max texture channels.");
                         return;
                     };
-                    let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
+                    let normals = mesh
+                        .attribute(Mesh::ATTRIBUTE_NORMAL)
+                        .unwrap()
+                        .as_float3()
+                        .unwrap();
 
                     for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                         let (x, z) = index_to_x_z(i, resolution as usize);
@@ -410,23 +481,27 @@ fn update_terrain_texture_maps(
                         let local_z = z_f - z_f.round();
 
                         // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
-                        let height_at_position = unsafe { get_height_at_position_in_quad(
-                            *heights.0.get_unchecked(vertex_a),
-                            *heights.0.get_unchecked(vertex_b),
-                            *heights.0.get_unchecked(vertex_c),
-                            *heights.0.get_unchecked(vertex_d),
-                            local_x,
-                            local_z,
-                        )};
+                        let height_at_position = unsafe {
+                            get_height_at_position_in_quad(
+                                *heights.0.get_unchecked(vertex_a),
+                                *heights.0.get_unchecked(vertex_b),
+                                *heights.0.get_unchecked(vertex_c),
+                                *heights.0.get_unchecked(vertex_d),
+                                local_x,
+                                local_z,
+                            )
+                        };
 
-                        let normal_at_position = unsafe { get_normal_at_position_in_quad(
-                            (*normals.get_unchecked(vertex_a)).into(),
-                            (*normals.get_unchecked(vertex_b)).into(),
-                            (*normals.get_unchecked(vertex_c)).into(),
-                            (*normals.get_unchecked(vertex_d)).into(),
-                            local_x,
-                            local_z,
-                        )};
+                        let normal_at_position = unsafe {
+                            get_normal_at_position_in_quad(
+                                (*normals.get_unchecked(vertex_a)).into(),
+                                (*normals.get_unchecked(vertex_b)).into(),
+                                (*normals.get_unchecked(vertex_c)).into(),
+                                (*normals.get_unchecked(vertex_d)).into(),
+                                local_x,
+                                local_z,
+                            )
+                        };
                         let normal_angle = normal_at_position.normalize().dot(Vec3::Y).acos();
 
                         let strength = rule.evaluator.eval(height_at_position, normal_angle);
@@ -442,23 +517,34 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply shape modifiers").entered();
 
                 for entry in shapes.iter() {
-                    if let Ok((texture_modifier, shape_modifier, modifier_falloff, texture_modifier_falloff, global_transform)) =
-                        shape_modifier_query.get(entry.entity)
+                    if let Ok((
+                        texture_modifier,
+                        shape_modifier,
+                        modifier_falloff,
+                        texture_modifier_falloff,
+                        global_transform,
+                    )) = shape_modifier_query.get(entry.entity)
                     {
-                        let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.units_per_texture, tile_size)
-                        else {
+                        let Some(texture_channel) = material.extension.get_texture_slot(
+                            &texture_modifier.texture,
+                            texture_modifier.units_per_texture,
+                            tile_size,
+                        ) else {
                             info!("Hit max texture channels.");
                             return;
                         };
                         let shape_translation = global_transform.translation().xz();
-                        let falloff = texture_modifier_falloff.map(|falloff| falloff.0).or(modifier_falloff.map(|falloff| falloff.0)).unwrap_or(f32::EPSILON).max(f32::EPSILON);
+                        let falloff = texture_modifier_falloff
+                            .map(|falloff| falloff.0)
+                            .or(modifier_falloff.map(|falloff| falloff.0))
+                            .unwrap_or(f32::EPSILON)
+                            .max(f32::EPSILON);
 
                         match shape_modifier {
                             ShapeModifier::Circle { radius } => {
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                                     let (x, z) = index_to_x_z(i, resolution as usize);
-                                    
+
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
                                     let overlap_index = overlap_y * 8 + overlaps_x;
@@ -485,7 +571,7 @@ fn update_terrain_texture_maps(
 
                                 for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                                     let (x, z) = index_to_x_z(i, resolution as usize);
-                                    
+
                                     let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                                     let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
                                     let overlap_index = overlap_y * 8 + overlaps_x;
@@ -530,44 +616,53 @@ fn update_terrain_texture_maps(
                 let _span = info_span!("Apply splines").entered();
 
                 for entry in splines.iter() {
-                    if let Ok((texture_modifier, spline, spline_properties, texture_modifier_falloff)) =
-                        spline_query.get(entry.entity)
+                    if let Ok((
+                        texture_modifier,
+                        spline,
+                        spline_properties,
+                        texture_modifier_falloff,
+                    )) = spline_query.get(entry.entity)
                     {
-                        let Some(texture_channel) =
-                            material.extension.get_texture_slot(&texture_modifier.texture, texture_modifier.units_per_texture, tile_size)
-                        else {
+                        let Some(texture_channel) = material.extension.get_texture_slot(
+                            &texture_modifier.texture,
+                            texture_modifier.units_per_texture,
+                            tile_size,
+                        ) else {
                             info!("Hit max texture channels.");
                             continue;
                         };
-                        let falloff = texture_modifier_falloff.map_or(spline_properties.falloff, |falloff| falloff.0).max(f32::EPSILON);
+                        let falloff = texture_modifier_falloff
+                            .map_or(spline_properties.falloff, |falloff| falloff.0)
+                            .max(f32::EPSILON);
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let (x, z) = index_to_x_z(i, resolution as usize);
-                            
+
                             let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
                             let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
                             let overlap_index = overlap_y * 8 + overlaps_x;
                             if (entry.overlap_bits & 1 << overlap_index) == 0 {
                                 continue;
                             }
-                        
-                            let vertex_position = terrain_translation + Vec2::new(x as f32, z as f32) * scale;
+
+                            let vertex_position =
+                                terrain_translation + Vec2::new(x as f32, z as f32) * scale;
                             let mut distance = f32::INFINITY;
 
                             for points in spline.points.windows(2) {
                                 let a_2d = points[0].xz();
                                 let b_2d = points[1].xz();
-            
-                                let (new_distance, _) = distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
-            
+
+                                let (new_distance, _) =
+                                    distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
+
                                 if new_distance < distance {
                                     distance = new_distance;
                                 }
                             }
 
                             let strength = (1.0
-                                - ((distance.sqrt() - spline_properties.width)
-                                    / falloff)
+                                - ((distance.sqrt() - spline_properties.width) / falloff)
                                     .clamp(0.0, 1.0))
                             .min(texture_modifier.max_strength);
 
@@ -591,8 +686,9 @@ pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength
         if strength == 255 {
             channels.fill(0);
         } else {
-            channels[target_channel] = 0; 
-            let total: i16 = channels[0] as i16 + channels[1] as i16 + channels[2] as i16 + channels[3] as i16;
+            channels[target_channel] = 0;
+            let total: i16 =
+                channels[0] as i16 + channels[1] as i16 + channels[2] as i16 + channels[3] as i16;
 
             let overflow = total + strength as i16 - 255;
 

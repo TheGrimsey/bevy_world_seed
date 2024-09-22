@@ -1,35 +1,60 @@
 use std::num::NonZeroU8;
 
-use bevy::{app::{App, Startup}, asset::{AssetServer, Assets}, color::Color, core::Name, math::Vec3, pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial}, prelude::{default, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Cuboid, Mesh, Res, ResMut, Transform, TransformBundle, VisibilityBundle}, DefaultPlugins};
+use bevy::{
+    app::{App, Startup},
+    asset::{AssetServer, Assets},
+    color::Color,
+    core::Name,
+    math::Vec3,
+    pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
+    prelude::{
+        default, BuildChildren, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Cuboid,
+        Mesh, Res, ResMut, Transform, TransformBundle, VisibilityBundle,
+    },
+    DefaultPlugins,
+};
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{material::{GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty, TextureModifierOperation, TexturingRule, TexturingRuleEvaluator}, modifiers::{ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape}, noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings}, snap_to_terrain::SnapToTerrain, terrain::Terrain, TerrainPlugin, TerrainSettings};
+use bevy_terrain_test::{
+    material::{
+        GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty,
+        TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
+    },
+    modifiers::{
+        ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
+        ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle,
+        TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
+    },
+    noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
+    snap_to_terrain::SnapToTerrain,
+    terrain::Terrain,
+    TerrainPlugin, TerrainSettings,
+};
 
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins((
-        DefaultPlugins,
-        EditorPlugin::default()
-    ));
+    app.add_plugins((DefaultPlugins, EditorPlugin::default()));
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
             splines: vec![],
-            layers: vec![
-                TerrainNoiseDetailLayer { amplitude: 6.0, frequency: 1.0 / 30.0, seed: 1 }
-            ],
+            layers: vec![TerrainNoiseDetailLayer {
+                amplitude: 6.0,
+                frequency: 1.0 / 30.0,
+                seed: 1,
+            }],
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(5).unwrap(),
             edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
-            max_spline_simplification_distance: 3.0
+            max_spline_simplification_distance: 3.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(6).unwrap(),
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
         }),
-        debug_draw: true
+        debug_draw: true,
     });
 
     app.add_systems(Startup, spawn_terrain);
@@ -38,23 +63,26 @@ fn main() {
     app.run();
 }
 
-fn insert_texturing_rules(mut texturing_rules: ResMut<GlobalTexturingRules>, asset_server: Res<AssetServer>) {
+fn insert_texturing_rules(
+    mut texturing_rules: ResMut<GlobalTexturingRules>,
+    asset_server: Res<AssetServer>,
+) {
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleGreaterThan {
             angle_radians: 30.0_f32.to_radians(),
-            falloff_radians: 2.5_f32.to_radians()
+            falloff_radians: 2.5_f32.to_radians(),
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-        units_per_texture: 4.0
+        units_per_texture: 4.0,
     });
-    
+
     texturing_rules.rules.push(TexturingRule {
         evaluator: TexturingRuleEvaluator::AngleLessThan {
             angle_radians: 30.0_f32.to_radians(),
-            falloff_radians: 2.5_f32.to_radians()
+            falloff_radians: 2.5_f32.to_radians(),
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
-        units_per_texture: 4.0
+        units_per_texture: 4.0,
     });
 }
 
@@ -72,7 +100,9 @@ fn spawn_terrain(
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0)).looking_at(Vec3::ZERO, Vec3::Y).with_translation(Vec3::ZERO),
+        transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
+            .looking_at(Vec3::ZERO, Vec3::Y)
+            .with_translation(Vec3::ZERO),
         ..default()
     });
 
@@ -81,27 +111,26 @@ fn spawn_terrain(
         Vec3::new(8.0, 0.0, 8.0),
         Vec3::new(16.0, 0.0, 16.0),
         Vec3::new(20.0, 1.0, 20.0),
-    ]).to_curve();
+    ])
+    .to_curve();
 
     // Spawn a spline modifier that also applies a texture.
     commands.spawn((
         TerrainSplineBundle {
             tile_aabb: ModifierAabb::default(),
-            spline: TerrainSplineShape {
-                curve: spline
-            },
+            spline: TerrainSplineShape { curve: spline },
             properties: TerrainSplineProperties {
                 width: 4.0,
-                falloff: 4.0
+                falloff: 4.0,
             },
             spline_cached: TerrainSplineCached::default(),
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::default()
+            transform_bundle: TransformBundle::default(),
         },
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
             max_strength: 0.95,
-            units_per_texture: 4.0
+            units_per_texture: 4.0,
         },
         TextureModifierFalloffProperty(1.0),
         Name::new("Spline"),
@@ -111,111 +140,155 @@ fn spawn_terrain(
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
-            shape: ShapeModifier::Circle {
-                radius: 4.0
-            },
+            shape: ShapeModifier::Circle { radius: 4.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(10.0, 5.0, 48.0))),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                Vec3::new(10.0, 5.0, 48.0),
+            )),
         },
         ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
             max_strength: 0.95,
-            units_per_texture: 4.0
+            units_per_texture: 4.0,
         },
-        Name::new("Modifier (Circle)")
+        Name::new("Modifier (Circle)"),
     ));
 
     // Spawn a circle hole punching modifier.
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
-            shape: ShapeModifier::Circle {
-                radius: 2.9
-            },
+            shape: ShapeModifier::Circle { radius: 2.9 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(40.0, 2.0, 6.0))),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                Vec3::new(40.0, 2.0, 6.0),
+            )),
         },
-        ModifierHoleOperation {
-            invert: false
-        },
-        Name::new("Modifier (Circle Hole)")
+        ModifierHoleOperation { invert: false },
+        Name::new("Modifier (Circle Hole)"),
     ));
 
     // Spawn a rectangle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
             aabb: ModifierAabb::default(),
-            shape: ShapeModifier::Rectangle {
-                x: 2.5,
-                z: 5.0
-            },
+            shape: ShapeModifier::Rectangle { x: 2.5, z: 5.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(2),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(Vec3::new(32.0, 5.0, 50.0))),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                Vec3::new(32.0, 5.0, 50.0),
+            )),
         },
         ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
             max_strength: 0.95,
-            units_per_texture: 4.0
+            units_per_texture: 4.0,
         },
-        Name::new("Modifier (Rectangle)")
+        Name::new("Modifier (Rectangle)"),
     ));
 
+    let mesh = meshes.add(Cuboid::from_size(Vec3::ONE));
+    let material = materials.add(Color::srgb(0.3, 0.3, 0.9));
     // Spawn a cube that snaps to terrain height.
-    commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Cuboid::from_size(Vec3::ONE)),
-            material: materials.add(Color::srgb(0.3, 0.3, 0.9)),
-            transform: Transform::from_translation(Vec3::new(32.0, 0.0, 32.0)),
-            ..default()
-        },
-        SnapToTerrain {
-            y_offset: 0.5,
-        },
-        Name::new("Snap To Terrain")
-    ));
+    commands
+        .spawn((
+            PbrBundle {
+                mesh: mesh.clone(),
+                material: material.clone(),
+                transform: Transform::from_translation(Vec3::new(16.0, 0.0, 16.0)),
+                ..default()
+            },
+            SnapToTerrain { y_offset: 0.5 },
+            Name::new("Snap To Terrain"),
+        ))
+        .with_children(|child_builder| {
+            child_builder.spawn((
+                PbrBundle {
+                    mesh: mesh.clone(),
+                    material: material.clone(),
+                    transform: Transform::from_translation(Vec3::new(4.0, 0.0, 0.0)),
+                    ..default()
+                },
+                SnapToTerrain { y_offset: 0.5 },
+                Name::new("Snap To Terrain (Child 1)"),
+            ));
+
+            child_builder.spawn((
+                PbrBundle {
+                    mesh: mesh.clone(),
+                    material: material.clone(),
+                    transform: Transform::from_translation(Vec3::new(-3.0, 0.0, 3.0)),
+                    ..default()
+                },
+                SnapToTerrain { y_offset: 0.5 },
+                Name::new("Snap To Terrain (Child 2)"),
+            ));
+
+            child_builder.spawn((
+                PbrBundle {
+                    mesh: mesh.clone(),
+                    material: material.clone(),
+                    transform: Transform::from_translation(Vec3::new(0.5, 0.0, -3.0)),
+                    ..default()
+                },
+                SnapToTerrain { y_offset: 0.5 },
+                Name::new("Snap To Terrain (Child 2)"),
+            ));
+        });
 
     // Spawn terrain tiles.
     commands.spawn((
         Terrain::default(),
         TransformBundle::default(),
         VisibilityBundle::default(),
-        Name::new("Terrain")
+        Name::new("Terrain"),
     ));
 
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, 0.0))),
+        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+            terrain_settings.tile_size(),
+            0.0,
+            0.0,
+        ))),
         VisibilityBundle::default(),
-        Name::new("Terrain (1, 0))")
+        Name::new("Terrain (1, 0))"),
     ));
-    
+
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(0.0, 0.0, terrain_settings.tile_size()))),
+        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+            0.0,
+            0.0,
+            terrain_settings.tile_size(),
+        ))),
         VisibilityBundle::default(),
-        Name::new("Terrain (0, 1)")
+        Name::new("Terrain (0, 1)"),
     ));
-    
+
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(terrain_settings.tile_size(), 0.0, terrain_settings.tile_size()))),
+        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+            terrain_settings.tile_size(),
+            0.0,
+            terrain_settings.tile_size(),
+        ))),
         VisibilityBundle::default(),
-        Name::new("Terrain (1, 1)")
+        Name::new("Terrain (1, 1)"),
     ));
 }
