@@ -429,4 +429,6 @@ fn create_terrain_mesh(
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_generated_tangents()
+    .unwrap() // TODO: Can this ever fail??
 }

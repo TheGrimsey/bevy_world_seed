@@ -73,6 +73,7 @@ fn insert_texturing_rules(
             falloff_radians: 2.5_f32.to_radians(),
         },
         texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+        normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
         units_per_texture: 4.0,
     });
 
@@ -82,6 +83,7 @@ fn insert_texturing_rules(
             falloff_radians: 2.5_f32.to_radians(),
         },
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
+        normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
         units_per_texture: 4.0,
     });
 }
@@ -129,6 +131,7 @@ fn spawn_terrain(
         },
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
         },
@@ -154,6 +157,7 @@ fn spawn_terrain(
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
         },
@@ -196,6 +200,7 @@ fn spawn_terrain(
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
+            normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
         },

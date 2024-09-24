@@ -89,6 +89,7 @@ impl TerrainTexturingSettings {
 #[reflect(Component)]
 pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
+    pub normal_texture: Option<Handle<Image>>,
     pub max_strength: f32,
     /// Represents the size of the texture in world units.
     ///
@@ -203,6 +204,7 @@ pub struct TexturingRule {
     pub evaluator: TexturingRuleEvaluator,
     /// The texture to apply with this rule.
     pub texture: Handle<Image>,
+    pub normal_texture: Option<Handle<Image>>,
     /// Represents the size of the texture in world units.
     ///
     /// `1.0` means the texture will repeat every world unit.
@@ -223,32 +225,46 @@ pub(super) struct TerrainMaterial {
     #[texture(20)]
     #[sampler(21)]
     texture_map: Handle<Image>,
+
     #[texture(22)]
     #[sampler(23)]
     texture_a: Option<Handle<Image>>,
+    #[texture(24)]
+    #[sampler(25)]
+    texture_a_normal: Option<Handle<Image>>,
 
-    #[uniform(24)]
+    #[uniform(26)]
     texture_a_scale: f32,
 
-    #[texture(25)]
-    #[sampler(26)]
+    #[texture(27)]
+    #[sampler(28)]
     texture_b: Option<Handle<Image>>,
+    #[texture(29)]
+    #[sampler(30)]
+    texture_b_normal: Option<Handle<Image>>,
 
-    #[uniform(27)]
+    #[uniform(31)]
     texture_b_scale: f32,
 
-    #[texture(28)]
-    #[sampler(29)]
+    #[texture(32)]
+    #[sampler(33)]
     texture_c: Option<Handle<Image>>,
+    #[texture(34)]
+    #[sampler(35)]
+    texture_c_normal: Option<Handle<Image>>,
 
-    #[uniform(30)]
+
+    #[uniform(36)]
     texture_c_scale: f32,
 
-    #[texture(31)]
-    #[sampler(32)]
+    #[texture(37)]
+    #[sampler(38)]
     texture_d: Option<Handle<Image>>,
+    #[texture(39)]
+    #[sampler(40)]
+    texture_d_normal: Option<Handle<Image>>,
 
-    #[uniform(33)]
+    #[uniform(41)]
     texture_d_scale: f32,
 }
 impl TerrainMaterial {
@@ -257,11 +273,17 @@ impl TerrainMaterial {
         self.texture_b = None;
         self.texture_c = None;
         self.texture_d = None;
+        
+        self.texture_a_normal = None;
+        self.texture_b_normal = None;
+        self.texture_c_normal = None;
+        self.texture_d_normal = None;
     }
 
     fn get_texture_slot(
         &mut self,
         image: &Handle<Image>,
+        normal: &Option<Handle<Image>>,
         units_per_texture: f32,
         tile_size: f32,
     ) -> Option<usize> {
@@ -270,44 +292,48 @@ impl TerrainMaterial {
         if self
             .texture_a
             .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_a_scale == scale)
+            .is_some_and(|entry| entry == image && self.texture_a_scale == scale && self.texture_a_normal == *normal)
         {
             Some(0)
         } else if self
             .texture_b
             .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_b_scale == scale)
+            .is_some_and(|entry| entry == image && self.texture_b_scale == scale && self.texture_b_normal == *normal)
         {
             Some(1)
         } else if self
             .texture_c
             .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_c_scale == scale)
+            .is_some_and(|entry| entry == image && self.texture_c_scale == scale && self.texture_c_normal == *normal)
         {
             Some(2)
         } else if self
             .texture_d
             .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_d_scale == scale)
+            .is_some_and(|entry| entry == image && self.texture_d_scale == scale && self.texture_d_normal == *normal)
         {
             Some(3)
         } else if self.texture_a.is_none() {
             self.texture_a = Some(image.clone());
+            self.texture_a_normal.clone_from(normal);
             self.texture_a_scale = scale;
 
             Some(0)
         } else if self.texture_b.is_none() {
             self.texture_b = Some(image.clone());
+            self.texture_b_normal.clone_from(normal);
             self.texture_b_scale = scale;
 
             Some(1)
         } else if self.texture_c.is_none() {
             self.texture_c = Some(image.clone());
+            self.texture_c_normal.clone_from(normal);
             self.texture_c_scale = scale;
 
             Some(2)
         } else if self.texture_d.is_none() {
             self.texture_d = Some(image.clone());
+            self.texture_d_normal.clone_from(normal);
             self.texture_d_scale = scale;
 
             Some(3)
@@ -358,6 +384,7 @@ fn insert_texture_map(
         let material_handle = materials.add(TerrainMaterialExtended {
             base: StandardMaterial {
                 perceptual_roughness: 1.0,
+                reflectance: 0.0,
                 ..default()
             },
             extension: material,
@@ -450,6 +477,7 @@ fn update_terrain_texture_maps(
                 for rule in texturing_rules.rules.iter() {
                     let Some(texture_channel) = material.extension.get_texture_slot(
                         &rule.texture,
+                        &rule.normal_texture,
                         rule.units_per_texture,
                         tile_size,
                     ) else {
@@ -527,6 +555,7 @@ fn update_terrain_texture_maps(
                     {
                         let Some(texture_channel) = material.extension.get_texture_slot(
                             &texture_modifier.texture,
+                            &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
                             tile_size,
                         ) else {
@@ -625,6 +654,7 @@ fn update_terrain_texture_maps(
                     {
                         let Some(texture_channel) = material.extension.get_texture_slot(
                             &texture_modifier.texture,
+                            &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
                             tile_size,
                         ) else {
