@@ -228,7 +228,7 @@ fn spawn_terrain(
                 Name::new("Snap To Terrain (Child 1)"),
             ));
 
-            child_builder.spawn((
+            /*child_builder.spawn((
                 PbrBundle {
                     mesh: mesh.clone(),
                     material: material.clone(),
@@ -248,7 +248,7 @@ fn spawn_terrain(
                 },
                 SnapToTerrain { y_offset: 0.5 },
                 Name::new("Snap To Terrain (Child 2)"),
-            ));
+            ));*/
         });
 
     // Spawn terrain tiles.
