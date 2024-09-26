@@ -21,7 +21,7 @@ use bevy_rapier3d::{
     prelude::Collider,
     render::RapierDebugRenderPlugin,
 };
-use bevy_terrain_test::{
+use bevy_world_seed::{
     material::TerrainTexturingSettings,
     modifiers::{
         ModifierAabb, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
@@ -143,7 +143,7 @@ fn update_heightfield(
                     HeightField::new(heights, Vec3::new(tile_size, 1.0, tile_size).into());
 
                 for hole in holes.iter_holes(terrain_settings.edge_points) {
-                    // Hole z & x are reversed from what you may expect.
+                    // Hole z & x are reversed in heightfield.
                     let cell_status =
                         &mut collider.cells_statuses_mut()[(hole.z as usize, hole.x as usize)];
 

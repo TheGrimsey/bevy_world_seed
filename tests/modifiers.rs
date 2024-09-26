@@ -6,7 +6,7 @@ use bevy::{
     prelude::{Commands, Query, Res, Transform, TransformBundle, TransformPlugin},
     MinimalPlugins,
 };
-use bevy_terrain_test::{
+use bevy_world_seed::{
     modifiers::{
         ModifierAabb, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority,
         ShapeModifier, ShapeModifierBundle,

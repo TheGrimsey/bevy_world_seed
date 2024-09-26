@@ -15,7 +15,7 @@ use bevy::{
     reflect::Reflect,
     transform::components::GlobalTransform,
 };
-#[cfg(feature = "rendering")]
+#[cfg(feature = "debug_draw")]
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
 use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
@@ -36,7 +36,7 @@ use utils::{distance_squared_to_line_segment, index_to_x_z};
 pub mod modifiers;
 pub mod terrain;
 
-#[cfg(feature = "rendering")]
+#[cfg(feature = "debug_draw")]
 mod debug_draw;
 #[cfg(feature = "rendering")]
 pub mod material;
@@ -59,7 +59,7 @@ pub struct TerrainPlugin {
     pub terrain_settings: TerrainSettings,
     #[cfg(feature = "rendering")]
     pub texturing_settings: Option<TerrainTexturingSettings>,
-    #[cfg(feature = "rendering")]
+    #[cfg(feature = "debug_draw")]
     pub debug_draw: bool,
 }
 impl Plugin for TerrainPlugin {
@@ -72,6 +72,7 @@ impl Plugin for TerrainPlugin {
                 TerrainSnapToTerrainPlugin,
             ));
 
+            #[cfg(feature = "debug_draw")]
             if self.debug_draw {
                 app.add_plugins(TerrainDebugDrawPlugin);
             }

@@ -1,5 +1,5 @@
 use bevy::math::Vec2;
-use bevy_terrain_test::{
+use bevy_world_seed::{
     material::{apply_texture, TexturingRuleEvaluator},
     utils::{distance_squared_to_line_segment, get_height_at_position_in_quad},
 };

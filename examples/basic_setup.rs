@@ -14,7 +14,7 @@ use bevy::{
     DefaultPlugins,
 };
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{
+use bevy_world_seed::{
     material::{
         GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty,
         TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
@@ -72,7 +72,7 @@ fn insert_texturing_rules(
             angle_radians: 30.0_f32.to_radians(),
             falloff_radians: 2.5_f32.to_radians(),
         },
-        texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+        texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
         normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
         units_per_texture: 4.0,
     });
@@ -95,18 +95,21 @@ fn spawn_terrain(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            illuminance: 1000.0,
-            shadows_enabled: true,
+    commands.spawn((
+        DirectionalLightBundle {
+            directional_light: DirectionalLight {
+                color: Color::WHITE,
+                illuminance: 1000.0,
+                shadows_enabled: true,
+                ..default()
+            },
+            transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
+                .looking_at(Vec3::ZERO, Vec3::Y)
+                .with_translation(Vec3::ZERO),
             ..default()
         },
-        transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
-            .looking_at(Vec3::ZERO, Vec3::Y)
-            .with_translation(Vec3::ZERO),
-        ..default()
-    });
+        Name::new("Directional Light")
+    ));
 
     let spline: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
         Vec3::new(0.0, 1.0, 0.0),
@@ -130,7 +133,7 @@ fn spawn_terrain(
             transform_bundle: TransformBundle::default(),
         },
         TextureModifierOperation {
-            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
@@ -156,7 +159,7 @@ fn spawn_terrain(
         ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {
-            texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,

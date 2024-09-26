@@ -1127,19 +1127,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_terrain_test"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_editor_pls",
- "bevy_rapier3d",
- "criterion",
- "fixedbitset 0.5.7",
- "noise",
- "splines",
-]
-
-[[package]]
 name = "bevy_text"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1288,6 +1275,19 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "winit",
+]
+
+[[package]]
+name = "bevy_world_seed"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_editor_pls",
+ "bevy_rapier3d",
+ "criterion",
+ "fixedbitset 0.5.7",
+ "noise",
+ "splines",
 ]
 
 [[package]]

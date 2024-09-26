@@ -14,7 +14,7 @@ use bevy::{
     DefaultPlugins,
 };
 use bevy_editor_pls::EditorPlugin;
-use bevy_terrain_test::{
+use bevy_world_seed::{
     material::{
         GlobalTexturingRules, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator,
     },
@@ -126,8 +126,8 @@ fn insert_texturing_rules(
             angle_radians: 40.0_f32.to_radians(),
             falloff_radians: 2.5_f32.to_radians(),
         },
-        texture: asset_server.load("textures/cracked_concrete_diff_1k.jpg"),
-        normal_texture: None,
+        texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
+        normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
         units_per_texture: 4.0,
     });
 

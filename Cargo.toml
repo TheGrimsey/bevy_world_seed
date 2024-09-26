@@ -1,5 +1,5 @@
 [package]
-name = "bevy_terrain_test"
+name = "bevy_world_seed"
 version = "0.1.0"
 edition = "2021"
 exclude = ["/assets"]
@@ -11,8 +11,9 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [features]
-rendering = ["bevy/bevy_render", "bevy/bevy_pbr", "bevy/bevy_asset", "bevy/bevy_gizmos"]
-default = ["rendering"]
+debug_draw = ["rendering", "bevy/bevy_gizmos"]
+rendering = ["bevy/bevy_render", "bevy/bevy_pbr", "bevy/bevy_asset"]
+default = ["rendering", "debug_draw"]
 
 [dependencies]
 bevy = { version = "0.14", default-features = false }

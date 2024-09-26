@@ -1,8 +1,10 @@
 
-# Terrain Deformation with Splines & Shapes in Bevy.
+# World Seed
 
-This uses a spline to flatten terrain (as one would with a road). The terrain heightmap is updated when a modifier changes.
- 
+Tiled runtime terrain generation with modifiers for the [Bevy](https://bevyengine.org/) game engine.
+
+With simplex noise & texturing by rules (or modifiers).
+
 ## Collision
 
 This crate does not include colliders as managing different versions of physics crates is a headache. For an example of how to add colliders for crates using Parry3d (Rapier & Avian), see `terrain_collider` example.
@@ -16,10 +18,6 @@ This crate does not include colliders as managing different versions of physics 
 - [ ] Base Height
 
 *Serializable/Deserializable base height that's able to be modified in editor and used instead of (or in addition to) noise.*
-
-- [ ] Snap To Terrain Height
-
-*Component for snapping an entity to the height of terrain at it's XZ position whenever the tile is rebuilt. Should also include a height offset.*
 
 ### Generation
 

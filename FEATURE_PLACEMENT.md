@@ -13,6 +13,8 @@
         2. We try to place it
         3. All features with an overlapping bounding box/sphere are discarded.
             - Probably want some bitmask for allowed overlaps. Ex. rocks can overlap with other boulders.
+                - `in_group`
+                - `incompatible_groups`
             - Overlaps include "exclusion zones"
             - Might need a different prioritization than just overlaps. Ex. "Keep biggest" to ensure we get some features.
     - Pros:

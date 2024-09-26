@@ -6,7 +6,7 @@
             format: FromExtension,
             is_srgb: true,
             sampler: Default,
-            asset_usage: ("RENDER_WORLD"),
+            asset_usage: ("MAIN_WORLD | RENDER_WORLD"),
         ),
     ),
 )
