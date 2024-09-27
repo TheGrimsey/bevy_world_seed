@@ -24,7 +24,7 @@ use bevy_rapier3d::{
 use bevy_world_seed::{
     material::TerrainTexturingSettings,
     modifiers::{
-        ModifierAabb, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
+        ModifierTileAabb, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
         ShapeModifier, ShapeModifierBundle,
     },
     noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
@@ -60,7 +60,7 @@ fn main() {
             tile_size_power: NonZeroU8::new(6).unwrap(),
             edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
-            max_spline_simplification_distance: 3.0,
+            max_spline_simplification_distance_squared: 3.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(1).unwrap(),
@@ -166,7 +166,7 @@ fn update_heightfield(
 fn spawn_terrain(mut commands: Commands) {
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierAabb::default(),
+            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 2.9 },
             properties: ModifierHeightProperties::default(),
             priority: ModifierPriority(1),

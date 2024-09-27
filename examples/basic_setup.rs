@@ -20,7 +20,7 @@ use bevy_world_seed::{
         TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
     },
     modifiers::{
-        ModifierAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
+        ModifierTileAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
         ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle,
         TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     },
@@ -48,7 +48,7 @@ fn main() {
             tile_size_power: NonZeroU8::new(5).unwrap(),
             edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
-            max_spline_simplification_distance: 3.0,
+            max_spline_simplification_distance_squared: 3.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(6).unwrap(),
@@ -122,7 +122,7 @@ fn spawn_terrain(
     // Spawn a spline modifier that also applies a texture.
     commands.spawn((
         TerrainSplineBundle {
-            tile_aabb: ModifierAabb::default(),
+            tile_aabb: ModifierTileAabb::default(),
             spline: TerrainSplineShape { curve: spline },
             properties: TerrainSplineProperties {
                 width: 4.0,
@@ -145,7 +145,7 @@ fn spawn_terrain(
     // Spawn a circle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierAabb::default(),
+            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 4.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
@@ -170,7 +170,7 @@ fn spawn_terrain(
     // Spawn a circle hole punching modifier.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierAabb::default(),
+            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 2.9 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
@@ -188,7 +188,7 @@ fn spawn_terrain(
     // Spawn a rectangle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierAabb::default(),
+            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Rectangle { x: 2.5, z: 5.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,

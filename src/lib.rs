@@ -23,7 +23,7 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 use meshing::TerrainMeshingPlugin;
 use modifiers::{
     update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache,
-    update_tile_modifier_priorities, ModifierAabb, ModifierFalloffProperty,
+    update_tile_modifier_priorities, ModifierTileAabb, ModifierFalloffProperty,
     ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
     ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
     TerrainSplineShape, TileToModifierMapping,
@@ -107,7 +107,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TileToTerrain>()
             .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
-            .register_type::<ModifierAabb>()
+            .register_type::<ModifierTileAabb>()
             .register_type::<TerrainSplineProperties>()
             .register_type::<Terrain>()
             .register_type::<ShapeModifier>()
@@ -139,8 +139,12 @@ pub struct TerrainSettings {
     pub edge_points: u16,
     /// The max amount of tile height updates to do per frame.
     pub max_tile_updates_per_frame: NonZeroU8,
-    /// Points closer than this square distance are removed.
-    pub max_spline_simplification_distance: f32,
+    /// Spline points which are closer to the previous point than this square distance are removed.
+    /// 
+    /// Used to reduce the amount of line segments to compare against when applying spline modifiers.
+    /// 
+    /// Lower values mean more points (& thus more accurate paths) at the cost of performance. 
+    pub max_spline_simplification_distance_squared: f32,
 }
 impl TerrainSettings {
     pub fn tile_size(&self) -> f32 {
@@ -155,6 +159,7 @@ struct RebuildTile(IVec2);
 #[derive(Event)]
 pub struct TileHeightsRebuilt(pub IVec2);
 
+/// Container for the height of points in a terrain tile.
 #[derive(Component, Deref, Debug)]
 pub struct Heights(Box<[f32]>);
 

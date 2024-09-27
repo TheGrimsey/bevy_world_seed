@@ -1,5 +1,7 @@
+//! System for automatically snapping entities to the height of the terrain. 
+
 use bevy::{
-    app::{App, Plugin, PostUpdate}, ecs::entity::EntityHashSet, log::info, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
+    app::{App, Plugin, PostUpdate}, ecs::entity::EntityHashSet, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
         any_with_component, on_event, Changed, Commands, Component, Entity, EventReader, GlobalTransform, IntoSystemConfigs, Mut, Or, Parent, Query, ReflectComponent, Res, ResMut, Resource, Transform, TransformSystem, With, Without
     }, reflect::Reflect, utils::HashMap
 };
@@ -8,10 +10,6 @@ use crate::{
     terrain::TileToTerrain, utils::get_height_at_position_in_tile, Heights, TerrainSettings,
     TileHeightsRebuilt,
 };
-
-/// Contains the component & systems which allow entities to automatically snap to the height of a tile.
-///
-///
 
 pub(super) struct TerrainSnapToTerrainPlugin;
 impl Plugin for TerrainSnapToTerrainPlugin {
@@ -149,7 +147,6 @@ fn update_snap_position(
     snap_to_terrain: &SnapToTerrain,
 ) {
     let true_transform = transform.with_translation(transform.translation - snap_entity_tile.offset);
-    info!("True Translation: {:?}, Offset: {:?}", true_transform.translation, snap_entity_tile.offset);
     
     let true_global_transform = if let Some(parent_transform) = parent_transform {
         parent_transform.mul_transform(true_transform)

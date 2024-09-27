@@ -77,6 +77,7 @@ pub struct TerrainTexturingSettings {
     /// Setting this equal to [`TerrainSettings::tile_size_power`] would mean textures can change every 1m.
     pub texture_resolution_power: NonZeroU8,
 
+    /// The maximum amount of tiles to update in a single frame.
     pub max_tile_updates_per_frame: NonZeroU8,
 }
 impl TerrainTexturingSettings {
@@ -90,6 +91,9 @@ impl TerrainTexturingSettings {
 pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
     pub normal_texture: Option<Handle<Image>>,
+    /// Maximum strength to apply the texture of this modifier with.
+    /// 
+    /// Range between `0.0..=1.0`
     pub max_strength: f32,
     /// Represents the size of the texture in world units.
     ///
@@ -509,6 +513,8 @@ fn update_terrain_texture_maps(
                         let local_z = z_f - z_f.round();
 
                         // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
+
+                        // Skip the bounds checks.
                         let height_at_position = unsafe {
                             get_height_at_position_in_quad(
                                 *heights.0.get_unchecked(vertex_a),
@@ -520,6 +526,7 @@ fn update_terrain_texture_maps(
                             )
                         };
 
+                        // Skip the bounds checks.
                         let normal_at_position = unsafe {
                             get_normal_at_position_in_quad(
                                 (*normals.get_unchecked(vertex_a)).into(),

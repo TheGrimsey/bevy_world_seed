@@ -8,7 +8,7 @@ use bevy::{
 };
 use bevy_world_seed::{
     modifiers::{
-        ModifierAabb, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority,
+        ModifierTileAabb, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority,
         ShapeModifier, ShapeModifierBundle,
     },
     terrain::{Terrain, TileToTerrain},
@@ -23,7 +23,7 @@ fn setup_app(app: &mut App) {
         tile_size_power: NonZeroU8::new(5).unwrap(),
         edge_points: 65,
         max_tile_updates_per_frame: NonZeroU8::MAX,
-        max_spline_simplification_distance: 3.0,
+        max_spline_simplification_distance_squared: 3.0,
     };
 
     #[cfg(feature = "rendering")]
@@ -76,7 +76,7 @@ fn test_circle_modifier_applies() {
             // Does not have falloff.
             commands.spawn((
                 ShapeModifierBundle {
-                    aabb: ModifierAabb::default(),
+                    aabb: ModifierTileAabb::default(),
                     shape: ShapeModifier::Circle {
                         // Size of the tile.
                         radius: tile_size / 2.0,
@@ -145,7 +145,7 @@ fn test_rectangle_modifier_applies() {
             // Does not have falloff.
             commands.spawn((
                 ShapeModifierBundle {
-                    aabb: ModifierAabb::default(),
+                    aabb: ModifierTileAabb::default(),
                     shape: ShapeModifier::Rectangle {
                         // Size of the tile.
                         x: tile_size / 2.0,

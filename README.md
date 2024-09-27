@@ -5,6 +5,12 @@ Tiled runtime terrain generation with modifiers for the [Bevy](https://bevyengin
 
 With simplex noise & texturing by rules (or modifiers).
 
+## Supported Version
+
+| Crate Version | Bevy Version |
+| ------------- | ------------ |
+| 0.1           | 0.14         |
+
 ## Collision
 
 This crate does not include colliders as managing different versions of physics crates is a headache. For an example of how to add colliders for crates using Parry3d (Rapier & Avian), see `terrain_collider` example.

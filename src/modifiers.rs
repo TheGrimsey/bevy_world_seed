@@ -15,7 +15,7 @@ use crate::{noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
 /// It additionally needs an Operation and optionally properties.
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
-    pub aabb: ModifierAabb,
+    pub aabb: ModifierTileAabb,
     pub shape: ShapeModifier,
     pub properties: ModifierHeightProperties,
     pub priority: ModifierPriority,
@@ -88,7 +88,7 @@ pub struct ModifierStrengthLimitProperty(pub f32);
 
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
-    pub tile_aabb: ModifierAabb,
+    pub tile_aabb: ModifierTileAabb,
     pub spline: TerrainSplineShape,
     pub properties: TerrainSplineProperties,
     pub spline_cached: TerrainSplineCached,
@@ -103,7 +103,7 @@ pub struct ModifierPriority(pub i32);
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct ModifierAabb {
+pub struct ModifierTileAabb {
     pub(super) min: IVec2,
     pub(super) max: IVec2,
 }
@@ -113,6 +113,7 @@ pub struct ModifierAabb {
 #[reflect(Component)]
 pub struct TerrainSplineShape {
     // TODO: This should be expecting the generic Curve trait when it's implemented.
+    /// Cubic curve defining the shape of the spline.
     pub curve: CubicCurve<Vec3>,
 }
 
@@ -168,7 +169,7 @@ pub(super) fn update_terrain_spline_cache(
 
             // Filter points that are very close together.
             let dedup_distance = (spline_properties.width * spline_properties.width)
-                .min(terrain_settings.max_spline_simplification_distance);
+                .min(terrain_settings.max_spline_simplification_distance_squared);
 
             // We need to figure out a subdivision amount that gives us close enough points.
             // Can't put this too low or some winding paths might break.
@@ -204,7 +205,7 @@ pub(super) fn update_terrain_spline_aabb(
             Entity,
             &TerrainSplineCached,
             &TerrainSplineProperties,
-            &mut ModifierAabb,
+            &mut ModifierTileAabb,
         ),
         (
             Changed<TerrainSplineCached>,
@@ -318,7 +319,7 @@ pub(super) fn update_shape_modifier_aabb(
             Entity,
             &ShapeModifier,
             Option<&ModifierFalloffProperty>,
-            &mut ModifierAabb,
+            &mut ModifierTileAabb,
             &GlobalTransform,
         ),
         Or<(

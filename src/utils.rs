@@ -47,6 +47,8 @@ pub fn get_height_at_position_in_tile(
 
     let quad_normalized_pos = vertex_space_position - vertex_space_position.round();
 
+    // Skip the bounds checks.
+    // SAFETY: These can never fail because of us clamping the normalized position.  
     unsafe {
         get_height_at_position_in_quad(
             *heights.0.get_unchecked(vertex_a),
