@@ -110,6 +110,7 @@ impl Plugin for TerrainPlugin {
             .register_type::<ModifierTileAabb>()
             .register_type::<TerrainSplineProperties>()
             .register_type::<Terrain>()
+            .register_type::<TerrainSettings>()
             .register_type::<ShapeModifier>()
             .register_type::<ModifierHeightOperation>()
             .register_type::<ModifierPriority>()
@@ -136,6 +137,8 @@ pub struct TerrainSettings {
     /// This enforces the size of a tile to be a power of 2.
     pub tile_size_power: NonZeroU8,
     /// How many points are on one edge of a terrain tile.
+    /// 
+    /// The distance between vertices is equal to `(edge_points - 1) / tile_size`.
     pub edge_points: u16,
     /// The max amount of tile height updates to do per frame.
     pub max_tile_updates_per_frame: NonZeroU8,
@@ -143,7 +146,7 @@ pub struct TerrainSettings {
     /// 
     /// Used to reduce the amount of line segments to compare against when applying spline modifiers.
     /// 
-    /// Lower values mean more points (& thus more accurate paths) at the cost of performance. 
+    /// Values less than the spacing between vertices in the terrain will have little effect. Greater values will show themselves in slopes & when the curve curves on the XZ-plane. 
     pub max_spline_simplification_distance_squared: f32,
 }
 impl TerrainSettings {

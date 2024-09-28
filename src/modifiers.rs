@@ -192,9 +192,20 @@ pub(super) fn update_terrain_spline_cache(
                     .map(|point| global_transform.transform_point(point)),
             );
 
+            // Keep last point in case it is removed by dedup.
+            // First point can't be deleted by dedup so we don't need to save it.
+            let last = spline_cached.points.last().cloned();
+
             spline_cached
                 .points
                 .dedup_by(|a, b| a.distance_squared(*b) < dedup_distance);
+
+            // Insert the final point if it was deleted.
+            if spline_cached.points.last() != last.as_ref() {
+                if let Some(last) = last {
+                    spline_cached.points.push(last);
+                }
+            }
         },
     );
 }
@@ -208,10 +219,10 @@ pub(super) fn update_terrain_spline_aabb(
             &mut ModifierTileAabb,
             Option<&ModifierFalloffProperty>,
         ),
-        (
+        Or<(
             Changed<TerrainSplineCached>,
             Changed<TerrainSplineProperties>,
-        ),
+        )>,
     >,
     terrain_settings: Res<TerrainSettings>,
     mut tile_to_modifier_mapping: ResMut<TileToModifierMapping>,

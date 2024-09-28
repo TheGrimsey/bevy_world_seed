@@ -23,7 +23,7 @@ fn setup_app(app: &mut App) {
         tile_size_power: NonZeroU8::new(5).unwrap(),
         edge_points: 65,
         max_tile_updates_per_frame: NonZeroU8::MAX,
-        max_spline_simplification_distance_squared: 3.0,
+        max_spline_simplification_distance_squared: 6.0,
     };
 
     #[cfg(feature = "rendering")]

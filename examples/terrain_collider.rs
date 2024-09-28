@@ -60,7 +60,7 @@ fn main() {
             tile_size_power: NonZeroU8::new(6).unwrap(),
             edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(16).unwrap(),
-            max_spline_simplification_distance_squared: 3.0,
+            max_spline_simplification_distance_squared: 6.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(1).unwrap(),

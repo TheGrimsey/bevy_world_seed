@@ -48,7 +48,7 @@ fn main() {
             tile_size_power: NonZeroU8::new(5).unwrap(),
             edge_points: 65,
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
-            max_spline_simplification_distance_squared: 3.0,
+            max_spline_simplification_distance_squared: 6.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(6).unwrap(),
@@ -115,8 +115,9 @@ fn spawn_terrain(
     let curve: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(8.0, 0.0, 8.0),
-        Vec3::new(16.0, 0.0, 16.0),
-        Vec3::new(20.0, 1.0, 20.0),
+        Vec3::new(10.0, 0.0, 20.0),
+        Vec3::new(30.0, 1.0, 30.0),
+        Vec3::new(40.0, 1.0, 48.0),
     ])
     .to_curve();
 
