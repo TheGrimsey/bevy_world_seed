@@ -111,7 +111,8 @@ fn spawn_terrain(
         Name::new("Directional Light")
     ));
 
-    let spline: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
+    // Create a simple curve from a few points.
+    let curve: CubicCurve<Vec3> = CubicCardinalSpline::new_catmull_rom(vec![
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(8.0, 0.0, 8.0),
         Vec3::new(16.0, 0.0, 16.0),
@@ -123,21 +124,22 @@ fn spawn_terrain(
     commands.spawn((
         TerrainSplineBundle {
             tile_aabb: ModifierTileAabb::default(),
-            spline: TerrainSplineShape { curve: spline },
+            spline: TerrainSplineShape { curve },
             properties: TerrainSplineProperties {
-                width: 4.0,
-                falloff: 4.0,
+                half_width: 3.0,
             },
             spline_cached: TerrainSplineCached::default(),
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::default(),
         },
+        // Adding `TextureModifierOperation` so this spline applies a texture. 
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
         },
+        ModifierFalloffProperty(4.0),
         TextureModifierFalloffProperty(1.0),
         Name::new("Spline"),
     ));

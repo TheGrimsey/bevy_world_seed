@@ -176,6 +176,7 @@ fn update_terrain_heights(
     spline_query: Query<(
         &TerrainSplineCached,
         &TerrainSplineProperties,
+        Option<&ModifierFalloffProperty>,
         Option<&ModifierStrengthLimitProperty>,
     )>,
     mut heights: Query<(&mut Heights, &mut Holes)>,
@@ -366,9 +367,11 @@ fn update_terrain_heights(
                 let _span = info_span!("Apply splines").entered();
 
                 for entry in splines.iter() {
-                    if let Ok((spline, spline_properties, modifier_strength_limit)) =
+                    if let Ok((spline, spline_properties, modifier_falloff, modifier_strength_limit)) =
                         spline_query.get(entry.entity)
                     {
+                        let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.0.max(f32::EPSILON));
+                        
                         for (i, val) in heights.0.iter_mut().enumerate() {
                             let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
 
@@ -399,8 +402,7 @@ fn update_terrain_heights(
 
                             if let Some(height) = height {
                                 let strength = 1.0
-                                    - ((distance.sqrt() - spline_properties.width)
-                                        / spline_properties.falloff.max(f32::EPSILON))
+                                    - ((distance.sqrt() - spline_properties.half_width) / falloff)
                                     .clamp(
                                         0.0,
                                         modifier_strength_limit.map_or(1.0, |modifier| modifier.0),

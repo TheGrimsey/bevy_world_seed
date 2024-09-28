@@ -66,12 +66,13 @@ pub enum ModifierHeightOperation {
         step: f32,
         smoothing: f32,
     },
+    /// Applies a [`TerrainNoiseDetailLayer`].
     Noise {
         noise: TerrainNoiseDetailLayer,
     },
 }
 
-/// Operation for creating or removing holes in terrain.
+/// Operation for creating holes in terrain.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct ModifierHoleOperation {
@@ -120,8 +121,7 @@ pub struct TerrainSplineShape {
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct TerrainSplineProperties {
-    pub width: f32,
-    pub falloff: f32,
+    pub half_width: f32,
 }
 
 /// Cache of points used when updating tiles.
@@ -168,7 +168,7 @@ pub(super) fn update_terrain_spline_cache(
             spline_cached.points.clear();
 
             // Filter points that are very close together.
-            let dedup_distance = (spline_properties.width * spline_properties.width)
+            let dedup_distance = (spline_properties.half_width * spline_properties.half_width)
                 .min(terrain_settings.max_spline_simplification_distance_squared);
 
             // We need to figure out a subdivision amount that gives us close enough points.
@@ -206,6 +206,7 @@ pub(super) fn update_terrain_spline_aabb(
             &TerrainSplineCached,
             &TerrainSplineProperties,
             &mut ModifierTileAabb,
+            Option<&ModifierFalloffProperty>,
         ),
         (
             Changed<TerrainSplineCached>,
@@ -219,7 +220,7 @@ pub(super) fn update_terrain_spline_aabb(
     let tile_size = terrain_settings.tile_size();
 
     query.iter_mut().for_each(
-        |(entity, spline_cached, spline_properties, mut tile_aabb)| {
+        |(entity, spline_cached, spline_properties, mut tile_aabb, modifier_falloff)| {
             for x in tile_aabb.min.x..=tile_aabb.max.x {
                 for y in tile_aabb.min.y..=tile_aabb.max.y {
                     let tile = IVec2::new(x, y);
@@ -233,6 +234,8 @@ pub(super) fn update_terrain_spline_aabb(
                 }
             }
 
+            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.0.max(f32::EPSILON));
+
             let (min, max) = if spline_cached.points.is_empty() {
                 (IVec2::ZERO, IVec2::ZERO)
             } else {
@@ -241,7 +244,7 @@ pub(super) fn update_terrain_spline_aabb(
                     |(min, max), point| (min.min(point.xz()), max.max(point.xz())),
                 );
 
-                let total_width = spline_properties.falloff + spline_properties.width;
+                let total_width = falloff + spline_properties.half_width;
 
                 (
                     (min - total_width).as_ivec2() >> terrain_settings.tile_size_power.get(),
@@ -265,11 +268,11 @@ pub(super) fn update_terrain_spline_aabb(
                         let b_2d = b.xz() - tile_world;
 
                         let min = a_2d.min(b_2d)
-                            - spline_properties.width
-                            - spline_properties.falloff.max(f32::EPSILON);
+                            - spline_properties.half_width
+                            - falloff;
                         let max = a_2d.max(b_2d)
-                            + spline_properties.width
-                            + spline_properties.falloff.max(f32::EPSILON);
+                            + spline_properties.half_width
+                            + falloff;
 
                         let min_scaled = ((min / tile_size) * 7.0).as_ivec2();
                         let max_scaled = ((max / tile_size) * 7.0).as_ivec2();

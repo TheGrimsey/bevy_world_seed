@@ -412,6 +412,7 @@ fn update_terrain_texture_maps(
         &TextureModifierOperation,
         &TerrainSplineCached,
         &TerrainSplineProperties,
+        Option<&ModifierFalloffProperty>,
         Option<&TextureModifierFalloffProperty>,
     )>,
     tiles_query: Query<(
@@ -656,6 +657,7 @@ fn update_terrain_texture_maps(
                         texture_modifier,
                         spline,
                         spline_properties,
+                        modifier_falloff,
                         texture_modifier_falloff,
                     )) = spline_query.get(entry.entity)
                     {
@@ -669,7 +671,9 @@ fn update_terrain_texture_maps(
                             continue;
                         };
                         let falloff = texture_modifier_falloff
-                            .map_or(spline_properties.falloff, |falloff| falloff.0)
+                            .map(|falloff| falloff.0)
+                            .or(modifier_falloff.map(|falloff| falloff.0))
+                            .unwrap_or_default()
                             .max(f32::EPSILON);
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
@@ -699,7 +703,7 @@ fn update_terrain_texture_maps(
                             }
 
                             let strength = (1.0
-                                - ((distance.sqrt() - spline_properties.width) / falloff)
+                                - ((distance.sqrt() - spline_properties.half_width) / falloff)
                                     .clamp(0.0, 1.0))
                             .min(texture_modifier.max_strength);
 

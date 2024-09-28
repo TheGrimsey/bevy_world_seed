@@ -53,7 +53,7 @@ fn debug_draw_terrain_modifiers(
                 a.lerp(*b, 0.5),
                 Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians())
                     * Quat::from_rotation_z(rotation),
-                Vec2::new(distance, spline_properties.width * 2.0),
+                Vec2::new(distance, spline_properties.half_width * 2.0),
                 Color::from(BLUE),
             );
         }
