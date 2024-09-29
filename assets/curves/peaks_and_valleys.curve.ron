@@ -1,0 +1,75 @@
+(
+  knots: [
+    (
+      position: (0.0, 0.0),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: -0.26608282,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: -0.26608282,
+        mode: Aligned,
+        weight: Some(0.683),
+      ),
+    ),
+    (
+      position: (0.10950765, 4.3741665),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 57.320946,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 57.320946,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.5223246, 10.673797),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 23.977978,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 23.977978,
+        mode: Aligned,
+        weight: Some(0.40310234),
+      ),
+    ),
+    (
+      position: (0.68333143, 24.267384),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 84.855934,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 84.855934,
+        mode: Aligned,
+        weight: Some(0.206),
+      ),
+    ),
+    (
+      position: (1.0001123, 30.0),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 12.105136,
+        mode: Free,
+        weight: Some(0.22260678),
+      ),
+      right_tangent: (
+        slope: 0.0,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+  ],
+  name: Some("Peaks And Valleys"),
+)

@@ -1,0 +1,103 @@
+(
+  knots: [
+    (
+      position: (0.0, 90.0),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 0.0,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 0.0,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.0, 0.0),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 0.0,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 0.0,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.23333335, 1.1220404),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: -21.955345,
+        mode: Aligned,
+        weight: Some(0.223),
+      ),
+      right_tangent: (
+        slope: -21.955345,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.47702336, 76.63388),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 100.25152,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 100.25152,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.59519315, 80.72861),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: 15.940404,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: 15.940404,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.73619026, 148.87796),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: -16.891134,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: -16.891134,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+    (
+      position: (0.9974476, 152.24408),
+      interpolation: Cubic,
+      left_tangent: (
+        slope: -36.101994,
+        mode: Aligned,
+        weight: None,
+      ),
+      right_tangent: (
+        slope: -36.101994,
+        mode: Aligned,
+        weight: None,
+      ),
+    ),
+  ],
+  name: Some("Continentallness"),
+)

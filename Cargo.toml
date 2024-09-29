@@ -17,14 +17,21 @@ default = ["rendering", "debug_draw"]
 
 [dependencies]
 bevy = { version = "0.14", default-features = false }
+bevy_lookup_curve = { version = "0.5", default-features = false, features = ["bevy_asset"] }
 fixedbitset = "0.5"
 noise = { version = "0.9", default-features = false }
-splines = "4.3.1"
 
 [dev-dependencies]
-criterion = { version = "0.5" }
 bevy = { version = "0.14", features = ["jpeg", "dds", "asset_processor"] }
-bevy_editor_pls = { git = "https://github.com/zhaop/bevy_editor_pls.git", branch = "bevy-0.14" }
+
+# Benchmarks.
+criterion = { version = "0.5" }
+
+# Editor used in many_tiles.
+bevy_lookup_curve = { version = "0.5", default-features = false, features = ["bevy_asset", "bevy_reflect", "editor_bevy"] }
+bevy_editor_pls = { git = "https://github.com/soraxas/bevy_editor_pls.git", branch = "feat-bump-version"}
+
+# Used in `terrain_collider` example.-
 bevy_rapier3d = "0.27.0"
 
 [[example]]

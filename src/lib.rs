@@ -4,17 +4,11 @@
 use std::num::NonZeroU8;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate},
-    log::info_span,
-    math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
-        resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter,
-        IntoSystemConfigs, Local, Query, ReflectResource, Res, Resource, SystemSet,
-        TransformSystem,
-    },
-    reflect::Reflect,
-    transform::components::GlobalTransform,
+    app::{App, Plugin, PostUpdate}, asset::Assets, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
+        resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
+    }, reflect::Reflect, transform::components::GlobalTransform
 };
+use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
 #[cfg(feature = "debug_draw")]
 use debug_draw::TerrainDebugDrawPlugin;
 #[cfg(feature = "rendering")]
@@ -78,6 +72,10 @@ impl Plugin for TerrainPlugin {
             }
         }
 
+        if !app.is_plugin_added::<LookupCurvePlugin>() {
+            app.add_plugins(LookupCurvePlugin);
+        }
+
         app.add_systems(
             PostUpdate,
             (
@@ -105,6 +103,7 @@ impl Plugin for TerrainPlugin {
 
         app.init_resource::<TileToModifierMapping>()
             .init_resource::<TileToTerrain>()
+            .init_resource::<NoiseCache>()
             .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
             .register_type::<ModifierTileAabb>()
@@ -155,8 +154,11 @@ impl TerrainSettings {
     }
 }
 
+/// Event emitted to mark a tile to be rebuilt.
+/// 
+/// Sent when modifiers are changed.
 #[derive(Event)]
-struct RebuildTile(IVec2);
+pub struct RebuildTile(pub IVec2);
 
 /// Emitted when the heights of a tile has been updated.
 #[derive(Event)]
@@ -187,9 +189,10 @@ fn update_terrain_heights(
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
     mut tile_generate_queue: Local<Vec<IVec2>>,
-    mut noise_cache: Local<NoiseCache>,
+    mut noise_cache: ResMut<NoiseCache>,
     mut event_reader: EventReader<RebuildTile>,
     mut tile_rebuilt_events: EventWriter<TileHeightsRebuilt>,
+    lookup_curves: Res<Assets<LookupCurve>>
 ) {
     for RebuildTile(tile) in event_reader.read() {
         if !tile_generate_queue.contains(tile) {
@@ -198,6 +201,14 @@ fn update_terrain_heights(
     }
 
     if tile_generate_queue.is_empty() {
+        return;
+    }
+
+    // Don't generate if we are waiting for splines to load.
+    if terrain_noise_layers
+        .as_ref()
+        .is_some_and(|layers| layers.splines.iter().any(|layer| !lookup_curves.contains(&layer.amplitude_curve))) {
+        
         return;
     }
 
@@ -232,7 +243,7 @@ fn update_terrain_heights(
                     let vertex_position =
                         terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-                    *val += terrain_noise_layers.sample_position(&mut noise_cache, vertex_position);
+                    *val += terrain_noise_layers.sample_position(&mut noise_cache, vertex_position, &lookup_curves);
                 }
             }
 
