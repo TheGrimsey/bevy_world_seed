@@ -39,17 +39,17 @@ fn main() {
             ],
             layers: vec![
                 TerrainNoiseDetailLayer {
-                    amplitude: 4.0,
+                    amplitude: 2.0,
                     frequency: 0.01,
                     seed: 3,
                 },
                 TerrainNoiseDetailLayer {
-                    amplitude: 2.0,
+                    amplitude: 1.0,
                     frequency: 0.02,
                     seed: 1,
                 },
                 TerrainNoiseDetailLayer {
-                    amplitude: 1.0,
+                    amplitude: 0.5,
                     frequency: 0.04,
                     seed: 2,
                 },
