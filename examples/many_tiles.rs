@@ -39,19 +39,24 @@ fn main() {
             ],
             layers: vec![
                 TerrainNoiseDetailLayer {
-                    amplitude: 2.0,
-                    frequency: 0.01,
+                    amplitude: 16.0,
+                    frequency: 0.005,
                     seed: 3,
                 },
                 TerrainNoiseDetailLayer {
-                    amplitude: 1.0,
-                    frequency: 0.02,
+                    amplitude: 8.0,
+                    frequency: 0.01,
                     seed: 1,
                 },
                 TerrainNoiseDetailLayer {
-                    amplitude: 0.5,
-                    frequency: 0.04,
+                    amplitude: 4.0,
+                    frequency: 0.02,
                     seed: 2,
+                },
+                TerrainNoiseDetailLayer {
+                    amplitude: 2.0,
+                    frequency: 0.04,
+                    seed: 3,
                 },
             ],
         }),
@@ -89,7 +94,7 @@ fn insert_rules(
     terrain_noise_settings.splines.extend([
         TerrainNoiseSplineLayer {
             amplitude_curve: continentallness.clone(),
-            frequency: 0.0015,
+            frequency: 0.001,
             seed: 5,
         },
         TerrainNoiseSplineLayer {
@@ -153,7 +158,7 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
         ..default()
     });
 
-    let terrain_range = 15;
+    let terrain_range = 5;
 
     for x in -terrain_range..terrain_range {
         for z in -terrain_range..terrain_range {

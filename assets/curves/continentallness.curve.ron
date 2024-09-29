@@ -18,18 +18,18 @@
       position: (0.0, 0.0),
       interpolation: Cubic,
       left_tangent: (
-        slope: 0.0,
+        slope: -150.91547,
         mode: Aligned,
         weight: None,
       ),
       right_tangent: (
-        slope: 0.0,
+        slope: -150.91547,
         mode: Aligned,
         weight: None,
       ),
     ),
     (
-      position: (0.23333335, 1.1220404),
+      position: (0.2425103, 2.2608676),
       interpolation: Cubic,
       left_tangent: (
         slope: -21.955345,
@@ -43,21 +43,21 @@
       ),
     ),
     (
-      position: (0.47702336, 76.63388),
+      position: (0.35772237, 75.495056),
       interpolation: Cubic,
       left_tangent: (
-        slope: 100.25152,
+        slope: 72.898415,
         mode: Aligned,
-        weight: None,
+        weight: Some(0.64799523),
       ),
       right_tangent: (
-        slope: 100.25152,
+        slope: 72.898415,
         mode: Aligned,
         weight: None,
       ),
     ),
     (
-      position: (0.59519315, 80.72861),
+      position: (0.63801897, 81.86743),
       interpolation: Cubic,
       left_tangent: (
         slope: 15.940404,
@@ -71,7 +71,7 @@
       ),
     ),
     (
-      position: (0.73619026, 148.87796),
+      position: (0.7576031, 148.87796),
       interpolation: Cubic,
       left_tangent: (
         slope: -16.891134,

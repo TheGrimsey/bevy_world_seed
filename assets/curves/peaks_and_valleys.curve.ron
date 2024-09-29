@@ -32,12 +32,12 @@
       position: (0.5223246, 10.673797),
       interpolation: Cubic,
       left_tangent: (
-        slope: 23.977978,
+        slope: 13.443052,
         mode: Aligned,
         weight: None,
       ),
       right_tangent: (
-        slope: 23.977978,
+        slope: 13.443052,
         mode: Aligned,
         weight: Some(0.40310234),
       ),
