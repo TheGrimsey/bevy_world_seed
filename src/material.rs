@@ -59,8 +59,9 @@ impl Plugin for TerrainTexturingPlugin {
             PostUpdate,
             (
                 insert_texture_map,
-                update_terrain_texture_maps.after(TerrainSets::Modifiers),
+                update_terrain_texture_maps.after(TerrainSets::Meshing),
             )
+                .in_set(TerrainSets::Material)
                 .chain(),
         );
     }

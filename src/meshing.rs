@@ -14,8 +14,7 @@ use bevy::{
 };
 
 use crate::{
-    terrain::{Holes, TileToTerrain},
-    update_terrain_heights, Heights, TerrainSettings, TileHeightsRebuilt,
+    terrain::{Holes, TileToTerrain}, update_terrain_heights, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct TerrainMeshingPlugin;
@@ -23,7 +22,7 @@ impl Plugin for TerrainMeshingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            update_mesh_from_heights.after(update_terrain_heights),
+            update_mesh_from_heights.after(update_terrain_heights).in_set(TerrainSets::Meshing),
         );
 
         app.add_event::<TerrainMeshRebuilt>();

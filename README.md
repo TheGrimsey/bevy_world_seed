@@ -7,9 +7,9 @@ With simplex noise & texturing by rules (or modifiers).
 
 ## Supported Version
 
-| Crate Version | Bevy Version |
-| ------------- | ------------ |
-| 0.1           | 0.14         |
+| Crate Version | Bevy Version | Bevy Lookup Curve |
+| ------------- | ------------ | ----------------- |
+| 0.1           | 0.14         | 0.5               |
 
 ## Collision
 

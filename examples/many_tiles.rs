@@ -184,7 +184,7 @@ impl EditorWindow for NoiseDebugWindow {
     type State = NoiseDebugWindowState;
     const NAME: &'static str = "Noise Debug";
 
-    fn ui(world: &mut World, cx: EditorWindowContext, ui: &mut egui::Ui) {
+    fn ui(world: &mut World, _cx: EditorWindowContext, ui: &mut egui::Ui) {
         world.resource_scope(|world, mut noise_cache: Mut<NoiseCache>| {
             if ui.button("Regenerate Terrain").clicked() {
                 let mut tiles = world.resource::<TileToTerrain>().keys().cloned().collect::<Vec<_>>();

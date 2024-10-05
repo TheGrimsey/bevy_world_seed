@@ -47,6 +47,8 @@ pub mod utils;
 pub enum TerrainSets {
     Modifiers,
     Heights,
+    Meshing,
+    Material
 }
 pub struct TerrainPlugin {
     pub noise_settings: Option<TerrainNoiseSettings>,
