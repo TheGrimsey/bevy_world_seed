@@ -5,7 +5,7 @@ use std::num::NonZeroU8;
 
 use bevy::{
     app::{App, Plugin, PostUpdate}, asset::Assets, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
-        resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
+        any_with_component, resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
     }, reflect::Reflect, transform::components::GlobalTransform
 };
 use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
@@ -45,6 +45,8 @@ pub mod utils;
 /// System sets containing the crate's systems.
 #[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TerrainSets {
+    /// Initialize components for Terrain & modifier entities.
+    Init,
     Modifiers,
     Heights,
     Meshing,
@@ -81,19 +83,19 @@ impl Plugin for TerrainPlugin {
         app.add_systems(
             PostUpdate,
             (
-                (insert_components, update_tiling).before(update_terrain_heights),
+                (insert_components, update_tiling).run_if(any_with_component::<Terrain>).before(update_terrain_heights).in_set(TerrainSets::Init),
                 (
                     (
                         (
-                            (update_terrain_spline_cache, update_terrain_spline_aabb).chain(),
-                            update_shape_modifier_aabb,
+                            (update_terrain_spline_cache, update_terrain_spline_aabb).chain().run_if(any_with_component::<TerrainSplineCached>),
+                            update_shape_modifier_aabb.run_if(any_with_component::<ShapeModifier>),
                         ),
                         update_tile_modifier_priorities
                             .run_if(resource_changed::<TileToModifierMapping>),
                     )
                         .chain()
                         .in_set(TerrainSets::Modifiers),
-                    update_terrain_heights.in_set(TerrainSets::Heights),
+                    update_terrain_heights.run_if(any_with_component::<Heights>).in_set(TerrainSets::Heights),
                 )
                     .chain(),
             )

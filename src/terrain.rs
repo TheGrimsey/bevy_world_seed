@@ -65,9 +65,21 @@ pub struct HoleEntry {
     pub right_triangle_removed: bool,
 }
 
+/// Marker component for the entity being a terrain tile.
+/// 
+/// Internal `IVec2` is updated based on `GlobalTransform` to the tile this terrain corresponds to.
 #[derive(Component, Reflect, Debug, Default)]
 #[reflect(Component)]
 pub struct Terrain(pub(super) IVec2);
+impl Terrain {
+    /// Manually set the tile.
+    /// 
+    /// It is not necessary to use this as the tile will be updated after the `GlobalTransform`.
+    /// But depending on when in a schedule you spawn the Terrain, it may be useful to set this manually.
+    pub fn new_with_tile(tile: IVec2) -> Self {
+        Self(tile)
+    }
+}
 
 /// Mapping tile coordinate to all terrain tiles on that tile.
 // Using a Vec<Entity> to prevent accidental overlaps from breaking the previous tile.
