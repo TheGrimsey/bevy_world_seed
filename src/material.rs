@@ -8,7 +8,7 @@ use bevy::{
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image,
-        IntoSystemConfigs, Local, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource,
+        IntoSystemConfigs, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource,
         Res, ResMut, Resource, Shader, With, Without,
     },
     reflect::Reflect,
@@ -63,6 +63,8 @@ impl Plugin for TerrainTexturingPlugin {
             )
                 .chain(),
         );
+
+        app.init_resource::<TerrainTextureRebuildQueue>();
     }
 }
 
@@ -400,6 +402,21 @@ fn insert_texture_map(
     });
 }
 
+/// Queue of terrain tiles which textures are to be rebuilt. 
+#[derive(Resource, Default)]
+pub struct TerrainTextureRebuildQueue(Vec<IVec2>);
+impl TerrainTextureRebuildQueue {
+    pub fn get(&self) -> &[IVec2] {
+        &self.0
+    }
+    pub fn count(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 fn update_terrain_texture_maps(
     shape_modifier_query: Query<(
         &TextureModifierOperation,
@@ -426,15 +443,15 @@ fn update_terrain_texture_maps(
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
     mut event_reader: EventReader<TerrainMeshRebuilt>,
-    mut tile_generate_queue: Local<Vec<IVec2>>,
+    mut tile_generate_queue: ResMut<TerrainTextureRebuildQueue>,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
     texturing_rules: Res<GlobalTexturingRules>,
 ) {
     for TerrainMeshRebuilt(tile) in event_reader.read() {
-        if !tile_generate_queue.contains(tile) {
-            tile_generate_queue.push(*tile);
+        if !tile_generate_queue.0.contains(tile) {
+            tile_generate_queue.0.push(*tile);
         }
     }
 
@@ -449,13 +466,13 @@ fn update_terrain_texture_maps(
     let inv_tile_size_scale = scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue
-        .len()
+        .count()
         .min(texture_settings.max_tile_updates_per_frame.get() as usize);
 
     tiles_query
         .iter_many(
             tile_generate_queue
-                .drain(..tiles_to_generate)
+                .0.drain(..tiles_to_generate)
                 .filter_map(|tile| tile_to_terrain.0.get(&tile))
                 .flatten(),
         )

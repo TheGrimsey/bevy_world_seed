@@ -17,8 +17,8 @@ use bevy_editor_pls::{default_windows::cameras::ActiveEditorCamera, editor_windo
 use bevy_lookup_curve::{editor::{LookupCurveEditor, LookupCurveEguiEditor}, LookupCurve};
 use bevy_world_seed::{
     material::{
-        GlobalTexturingRules, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator,
-    }, noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer}, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainPlugin, TerrainSettings
+        GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator
+    }, meshing::TerrainMeshRebuildQueue, noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer}, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
 };
 
 fn main() {
@@ -192,6 +192,24 @@ impl EditorWindow for NoiseDebugWindow {
                 tiles.sort_by(|a, b| a.x.cmp(&b.x).then(a.y.cmp(&b.y)));
 
                 world.send_event_batch(tiles.into_iter().map(RebuildTile));
+            }
+            
+            let heights_queue = world.resource::<TerrainHeightRebuildQueue>();
+            let mesh_queue = world.resource::<TerrainMeshRebuildQueue>();
+            let texture_queue = world.resource::<TerrainTextureRebuildQueue>();
+
+            if !heights_queue.is_empty() || !mesh_queue.is_empty() || !texture_queue.is_empty() {
+                ui.heading("Queued");
+
+                ui.columns(3, |ui| {
+                    ui[0].label("Heights");
+                    ui[1].label("Meshes");
+                    ui[2].label("Textures");
+
+                    ui[0].label(heights_queue.count().to_string());
+                    ui[1].label(mesh_queue.count().to_string());
+                    ui[2].label(texture_queue.count().to_string());
+                });
             }
 
             let mut query_state = world.query_filtered::<&GlobalTransform, With<ActiveEditorCamera>>();

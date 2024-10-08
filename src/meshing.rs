@@ -1,16 +1,12 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate},
-    asset::{Assets, Handle},
-    math::{IVec2, Vec3, Vec3A},
-    prelude::{
-        Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Mesh, Query,
-        Res, ResMut,
-    },
-    render::{
-        mesh::{Indices, PrimitiveTopology},
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3A, Vec4}, prelude::{
+        Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Mesh, Query,
+        Res, ResMut, Resource,
+    }, render::{
+        mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
         primitives::Aabb,
         render_asset::RenderAssetUsages,
-    },
+    }
 };
 
 use crate::{
@@ -26,6 +22,22 @@ impl Plugin for TerrainMeshingPlugin {
         );
 
         app.add_event::<TerrainMeshRebuilt>();
+        app.init_resource::<TerrainMeshRebuildQueue>();
+    }
+}
+
+/// Queue of terrain tiles which meshes are to be rebuilt. 
+#[derive(Resource, Default)]
+pub struct TerrainMeshRebuildQueue(Vec<IVec2>);
+impl TerrainMeshRebuildQueue {
+    pub fn get(&self) -> &[IVec2] {
+        &self.0
+    }
+    pub fn count(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -46,13 +58,13 @@ fn update_mesh_from_heights(
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
-    mut tile_generate_queue: Local<Vec<IVec2>>,
+    mut tile_generate_queue: ResMut<TerrainMeshRebuildQueue>,
     mut tile_rebuilt_events: EventReader<TileHeightsRebuilt>,
     mut repaint_texture_events: EventWriter<TerrainMeshRebuilt>,
 ) {
     for TileHeightsRebuilt(tile) in tile_rebuilt_events.read() {
-        if !tile_generate_queue.contains(tile) {
-            tile_generate_queue.push(*tile);
+        if !tile_generate_queue.0.contains(tile) {
+            tile_generate_queue.0.push(*tile);
         }
 
         // Queue neighbors as well to make sure normals are correct at the edges.
@@ -64,8 +76,8 @@ fn update_mesh_from_heights(
         ];
 
         for neighbor in neighbors.into_iter() {
-            if !tile_generate_queue.contains(&neighbor) {
-                tile_generate_queue.push(neighbor);
+            if !tile_generate_queue.0.contains(&neighbor) {
+                tile_generate_queue.0.push(neighbor);
             }
         }
     }
@@ -76,10 +88,10 @@ fn update_mesh_from_heights(
     let tile_size = terrain_settings.tile_size();
 
     let tiles_to_generate = tile_generate_queue
-        .len()
+        .0.len()
         .min(terrain_settings.max_tile_updates_per_frame.get() as usize);
 
-    for tile in tile_generate_queue.drain(..tiles_to_generate) {
+    for tile in tile_generate_queue.0.drain(..tiles_to_generate) {
         let Some(tiles) = tile_to_terrain.0.get(&tile) else {
             continue;
         };
@@ -114,6 +126,8 @@ fn update_mesh_from_heights(
         ];
 
         while let Some((entity, heights, mesh_handle, holes, mut aabb)) = iter.fetch_next() {
+            let _span = info_span!("Build tile mesh").entered();
+
             let mesh = create_terrain_mesh(
                 terrain_settings.tile_size(),
                 terrain_settings.edge_points,
@@ -291,7 +305,9 @@ fn create_terrain_mesh(
     let step = (1.0 / vertex_edge) * size;
 
     // -X direction.
-    if let Some(neighbors) = neighbours[0] {
+    if let Some(neighbors) = neighbours[0] {        
+        let _span = info_span!("Add normals from -X neighbor").entered();
+
         // Corner
         {
             let x = 0;
@@ -340,6 +356,8 @@ fn create_terrain_mesh(
 
     // +X direction.
     if let Some(neighbors) = neighbours[1] {
+        let _span = info_span!("Add normals from +X neighbor").entered();
+        
         // Ignoring corners.
         for x in (0..(num_vertices - edge_length as usize))
             .skip(edge_length as usize + edge_length as usize - 1)
@@ -369,6 +387,8 @@ fn create_terrain_mesh(
 
     // -Y
     if let Some(neighbors) = neighbours[2] {
+        let _span = info_span!("Add normals from -Y neighbor").entered();
+        
         let neighbor_row = &neighbors[edge_length as usize * (edge_length as usize - 2)..];
 
         // Ignoring corners.
@@ -391,6 +411,8 @@ fn create_terrain_mesh(
     }
     // +Y
     if let Some(neighbors) = neighbours[3] {
+        let _span = info_span!("Add normals from +Y neighbor").entered();
+        
         let neighbor_row = &neighbors[edge_length as usize..(edge_length as usize * 2)];
 
         // Ignoring corners.
@@ -420,6 +442,13 @@ fn create_terrain_mesh(
         normals[i] = (normals[i] / (count as f32)).normalize();
     }
 
+    let temp_indices: Vec<usize> = match &indices {
+        Indices::U16(vec) => vec.iter().map(|i| *i as usize).collect(),
+        Indices::U32(vec) => vec.iter().map(|i| *i as usize).collect(),
+    };
+
+    let generated_tangents = generate_tangents(&temp_indices, &positions, &uvs, &normals);
+
     Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -428,6 +457,81 @@ fn create_terrain_mesh(
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_generated_tangents()
-    .unwrap() // TODO: Can this ever fail??
+    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, generated_tangents)
+}
+
+#[derive(Default, Clone)]
+struct TangentSpace {
+    tangent: Vec3, // Change Vec3 to Vec4
+    count: u32,
+}
+
+/// Generate tangents by taking advantage of the invariants of our terrain. (We can't have degenerate triangles, no standalone faces, etc)
+/// 
+/// This is much faster than the regular bevy generation with very minor errors (~10e-6) or so.
+fn generate_tangents(indices: &[usize], positions: &[Vec3], uvs: &[[f32; 2]], normals: &[Vec3]) -> Vec<Vec4> {
+    let _span = info_span!("Generate tangents").entered();
+    
+    let mut tangents = vec![TangentSpace::default(); positions.len()];
+
+    // Iterate over each triangle
+    for i in (0..indices.len()).step_by(3) {
+        let i0 = indices[i];
+        let i1 = indices[i + 1];
+        let i2 = indices[i + 2];
+
+        let p0 = positions[i0];
+        let p1 = positions[i1];
+        let p2 = positions[i2];
+
+        let uv0 = uvs[i0];
+        let uv1 = uvs[i1];
+        let uv2 = uvs[i2];
+
+        // Calculate edges of the triangle
+        let delta_pos1 = p1 - p0; // p1 - p0
+        let delta_pos2 = p2 - p0; // p2 - p0
+
+        // Calculate UV deltas
+        let delta_uv1 = Vec2::new(uv1[0] - uv0[0], uv1[1] - uv0[1]);
+        let delta_uv2 = Vec2::new(uv2[0] - uv0[0], uv2[1] - uv0[1]);
+
+        // Calculate the tangent
+        let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
+        let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+
+        // Convert to Vec4 and set w = 1.0
+        let tangent_4d = Vec3::new(tangent.x, tangent.y, tangent.z);
+
+        // Add to the tangent space of each vertex
+        tangents[i0].tangent += tangent_4d;
+        tangents[i1].tangent += tangent_4d;
+        tangents[i2].tangent += tangent_4d;
+
+        // Increment count for averaging later
+        tangents[i0].count += 1;
+        tangents[i1].count += 1;
+        tangents[i2].count += 1;
+    }
+
+    // Finalize tangents by averaging and orthogonalizing against normals
+    let mut final_tangents = vec![Vec4::ZERO; positions.len()];
+
+    for i in 0..positions.len() {
+        if tangents[i].count > 0 {
+            // Average the tangents
+            let averaged_tangent = (tangents[i].tangent / tangents[i].count as f32).normalize();
+
+            // Get the normal for this vertex
+            let normal = normals[i];
+
+            // Use Gram-Schmidt to ensure the tangent is orthogonal to the normal
+            let orthogonal_tangent = averaged_tangent - normal * (averaged_tangent.dot(normal));
+            let final_tangent = orthogonal_tangent.normalize(); // Normalize the tangent after orthogonalization
+
+            final_tangents[i] = Vec4::new(final_tangent.x, final_tangent.y, final_tangent.z, 1.0);
+        }
+    }
+
+    final_tangents
 }

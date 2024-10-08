@@ -5,7 +5,7 @@ use std::num::NonZeroU8;
 
 use bevy::{
     app::{App, Plugin, PostUpdate}, asset::Assets, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
-        any_with_component, resource_changed, AnyOf, Component, Deref, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
+        any_with_component, resource_changed, AnyOf, Component, Deref, DetectChanges, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
     }, reflect::Reflect, transform::components::GlobalTransform
 };
 use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
@@ -22,7 +22,7 @@ use modifiers::{
     ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
     TerrainSplineShape, TileToModifierMapping,
 };
-use noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
+use noise::{apply_noise_simd, NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
 use snap_to_terrain::TerrainSnapToTerrainPlugin;
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_squared_to_line_segment, index_to_x_z};
@@ -35,7 +35,7 @@ mod debug_draw;
 #[cfg(feature = "rendering")]
 pub mod material;
 #[cfg(feature = "rendering")]
-mod meshing;
+pub mod meshing;
 pub mod snap_to_terrain;
 
 pub mod noise;
@@ -127,6 +127,8 @@ impl Plugin for TerrainPlugin {
             app.register_type::<TerrainNoiseDetailLayer>()
                 .register_type::<TerrainNoiseSettings>();
         }
+        
+        app.init_resource::<TerrainHeightRebuildQueue>();
     }
 }
 
@@ -172,6 +174,21 @@ pub struct TileHeightsRebuilt(pub IVec2);
 #[derive(Component, Deref, Debug)]
 pub struct Heights(Box<[f32]>);
 
+/// Queue of terrain tiles which [`Heights`] are to be rebuilt. 
+#[derive(Resource, Default)]
+pub struct TerrainHeightRebuildQueue(Vec<IVec2>);
+impl TerrainHeightRebuildQueue {
+    pub fn get(&self) -> &[IVec2] {
+        &self.0
+    }
+    pub fn count(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 fn update_terrain_heights(
     terrain_noise_layers: Option<Res<TerrainNoiseSettings>>,
     shape_modifier_query: Query<(
@@ -192,15 +209,27 @@ fn update_terrain_heights(
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
-    mut tile_generate_queue: Local<Vec<IVec2>>,
+    mut tile_generate_queue: ResMut<TerrainHeightRebuildQueue>,
     mut noise_cache: ResMut<NoiseCache>,
     mut event_reader: EventReader<RebuildTile>,
     mut tile_rebuilt_events: EventWriter<TileHeightsRebuilt>,
-    lookup_curves: Res<Assets<LookupCurve>>
+    lookup_curves: Res<Assets<LookupCurve>>,
+    mut noise_spline_index_cache: Local<Vec<u32>>,
+    mut noise_detail_index_cache: Local<Vec<u32>>
 ) {
+    // Cache indexes into the noise cache for each terrain noise.
+    // Saves having to do the checks and insertions for every iteration when applying the noise.
+    if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref().filter(|noise_layers| noise_layers.is_changed()) {
+        noise_spline_index_cache.clear();
+        noise_spline_index_cache.extend(terrain_noise_layers.splines.iter().map(|spline| noise_cache.get_simplex_index(spline.seed) as u32));
+
+        noise_detail_index_cache.clear();
+        noise_detail_index_cache.extend(terrain_noise_layers.layers.iter().map(|layer| noise_cache.get_simplex_index(layer.seed) as u32));
+    }
+
     for RebuildTile(tile) in event_reader.read() {
-        if !tile_generate_queue.contains(tile) {
-            tile_generate_queue.push(*tile);
+        if !tile_generate_queue.0.contains(tile) {
+            tile_generate_queue.0.push(*tile);
         }
     }
 
@@ -221,10 +250,10 @@ fn update_terrain_heights(
     let inv_tile_size_scale = scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue
-        .len()
+        .count()
         .min(terrain_settings.max_tile_updates_per_frame.get() as usize);
 
-    for tile in tile_generate_queue.drain(..tiles_to_generate) {
+    for tile in tile_generate_queue.0.drain(..tiles_to_generate) {
         let Some(tiles) = tile_to_terrain.0.get(&tile) else {
             continue;
         };
@@ -241,14 +270,7 @@ fn update_terrain_heights(
             // First, set by noise.
             if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref() {
                 let _span = info_span!("Apply noise").entered();
-                for (i, val) in heights.0.iter_mut().enumerate() {
-                    let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
-
-                    let vertex_position =
-                        terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
-
-                    *val += terrain_noise_layers.sample_position(&mut noise_cache, vertex_position, &lookup_curves);
-                }
+                apply_noise_simd(&mut heights.0, &terrain_settings, terrain_translation, scale, &noise_cache, &noise_spline_index_cache, &noise_detail_index_cache, &lookup_curves, terrain_noise_layers);
             }
 
             // Secondly, set by shape-modifiers.
