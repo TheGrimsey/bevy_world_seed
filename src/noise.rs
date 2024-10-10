@@ -129,11 +129,14 @@ impl TerrainNoiseDetailLayer {
     #[inline]
     pub fn sample_simd(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
         // Step 1: Get the noise values for all 4 positions (x, z)
+        let x = x * self.frequency;
+        let z = z * self.frequency;
+        
         let noise_values = Vec4::new(
-            noise.get([(x.x * self.frequency) as f64, (z.x * self.frequency) as f64]) as f32,
-            noise.get([(x.y * self.frequency) as f64, (z.y * self.frequency) as f64]) as f32,
-            noise.get([(x.z * self.frequency) as f64, (z.z * self.frequency) as f64]) as f32,
-            noise.get([(x.w * self.frequency) as f64, (z.w * self.frequency) as f64]) as f32,
+            noise.get([x.x as f64, z.x as f64]) as f32,
+            noise.get([x.y as f64, z.y as f64]) as f32,
+            noise.get([x.z as f64, z.z as f64]) as f32,
+            noise.get([x.w as f64, z.w as f64]) as f32,
         );
 
         // Step 2: Multiply by the amplitude

@@ -1,11 +1,8 @@
 use bevy::{
-    math::{IVec2, Vec3Swizzles},
-    prelude::{
+    ecs::component::{ComponentHooks, StorageType}, math::{IVec2, Vec3Swizzles}, prelude::{
         Changed, Commands, Component, Deref, DetectChanges, Entity, EventWriter, GlobalTransform,
         Query, ReflectComponent, Res, ResMut, Resource, With, Without,
-    },
-    reflect::Reflect,
-    utils::HashMap,
+    }, reflect::Reflect, utils::HashMap
 };
 use fixedbitset::FixedBitSet;
 
@@ -68,7 +65,7 @@ pub struct HoleEntry {
 /// Marker component for the entity being a terrain tile.
 /// 
 /// Internal `IVec2` is updated based on `GlobalTransform` to the tile this terrain corresponds to.
-#[derive(Component, Reflect, Debug, Default)]
+#[derive(Reflect, Debug, Default, Clone, Copy)]
 #[reflect(Component)]
 pub struct Terrain(pub(super) IVec2);
 impl Terrain {
@@ -78,6 +75,23 @@ impl Terrain {
     /// But depending on when in a schedule you spawn the Terrain, it may be useful to set this manually.
     pub fn new_with_tile(tile: IVec2) -> Self {
         Self(tile)
+    }
+}
+impl Component for Terrain {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    fn register_component_hooks(hooks: &mut ComponentHooks) {
+        hooks.on_remove(|mut world, entity, _id| {
+            let terrain = *world.get::<Terrain>(entity).unwrap();
+            
+            // Remove ourselves from the tiles to terrain list.
+            let mut tile_to_terrain = world.resource_mut::<TileToTerrain>();
+            if let Some(tiles) = tile_to_terrain.0.get_mut(&terrain.0) {
+                if let Some(i) = tiles.iter().position(|entry| *entry == entity) {
+                    tiles.swap_remove(i);
+                }
+            }
+        });
     }
 }
 

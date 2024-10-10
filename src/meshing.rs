@@ -1,9 +1,9 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::{info, info_span}, math::{IVec2, Vec2, Vec3, Vec3A, Vec4}, prelude::{
+    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::info_span, math::{IVec2, Vec2, Vec3, Vec3A, Vec4}, prelude::{
         Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Mesh, Query,
         Res, ResMut, Resource,
     }, render::{
-        mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
+        mesh::{Indices, PrimitiveTopology},
         primitives::Aabb,
         render_asset::RenderAssetUsages,
     }
@@ -442,12 +442,7 @@ fn create_terrain_mesh(
         normals[i] = (normals[i] / (count as f32)).normalize();
     }
 
-    let temp_indices: Vec<usize> = match &indices {
-        Indices::U16(vec) => vec.iter().map(|i| *i as usize).collect(),
-        Indices::U32(vec) => vec.iter().map(|i| *i as usize).collect(),
-    };
-
-    let generated_tangents = generate_tangents(&temp_indices, &positions, &uvs, &normals);
+    let generated_tangents = generate_tangents(&indices, &positions, &uvs, &normals);
 
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -469,16 +464,17 @@ struct TangentSpace {
 /// Generate tangents by taking advantage of the invariants of our terrain. (We can't have degenerate triangles, no standalone faces, etc)
 /// 
 /// This is much faster than the regular bevy generation with very minor errors (~10e-6) or so.
-fn generate_tangents(indices: &[usize], positions: &[Vec3], uvs: &[[f32; 2]], normals: &[Vec3]) -> Vec<Vec4> {
+fn generate_tangents(indices: &Indices, positions: &[Vec3], uvs: &[[f32; 2]], normals: &[Vec3]) -> Vec<Vec4> {
     let _span = info_span!("Generate tangents").entered();
     
     let mut tangents = vec![TangentSpace::default(); positions.len()];
 
     // Iterate over each triangle
     for i in (0..indices.len()).step_by(3) {
-        let i0 = indices[i];
-        let i1 = indices[i + 1];
-        let i2 = indices[i + 2];
+        let (i0, i1, i2) = match indices {
+            Indices::U16(vec) => (vec[i] as usize, vec[i + 1] as usize, vec[i + 2] as usize),
+            Indices::U32(vec) => (vec[i] as usize, vec[i + 1] as usize, vec[i + 2] as usize),
+        };
 
         let p0 = positions[i0];
         let p1 = positions[i1];
@@ -488,9 +484,8 @@ fn generate_tangents(indices: &[usize], positions: &[Vec3], uvs: &[[f32; 2]], no
         let uv1 = uvs[i1];
         let uv2 = uvs[i2];
 
-        // Calculate edges of the triangle
-        let delta_pos1 = p1 - p0; // p1 - p0
-        let delta_pos2 = p2 - p0; // p2 - p0
+        let delta_pos1 = p1 - p0;
+        let delta_pos2 = p2 - p0;
 
         // Calculate UV deltas
         let delta_uv1 = Vec2::new(uv1[0] - uv0[0], uv1[1] - uv0[1]);
@@ -500,13 +495,12 @@ fn generate_tangents(indices: &[usize], positions: &[Vec3], uvs: &[[f32; 2]], no
         let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
         let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
 
-        // Convert to Vec4 and set w = 1.0
-        let tangent_4d = Vec3::new(tangent.x, tangent.y, tangent.z);
+        let tangent = Vec3::new(tangent.x, tangent.y, tangent.z);
 
         // Add to the tangent space of each vertex
-        tangents[i0].tangent += tangent_4d;
-        tangents[i1].tangent += tangent_4d;
-        tangents[i2].tangent += tangent_4d;
+        tangents[i0].tangent += tangent;
+        tangents[i1].tangent += tangent;
+        tangents[i2].tangent += tangent;
 
         // Increment count for averaging later
         tangents[i0].count += 1;
@@ -522,13 +516,12 @@ fn generate_tangents(indices: &[usize], positions: &[Vec3], uvs: &[[f32; 2]], no
             // Average the tangents
             let averaged_tangent = (tangents[i].tangent / tangents[i].count as f32).normalize();
 
-            // Get the normal for this vertex
             let normal = normals[i];
 
-            // Use Gram-Schmidt to ensure the tangent is orthogonal to the normal
             let orthogonal_tangent = averaged_tangent - normal * (averaged_tangent.dot(normal));
-            let final_tangent = orthogonal_tangent.normalize(); // Normalize the tangent after orthogonalization
+            let final_tangent = orthogonal_tangent.normalize();
 
+            // Because of the grid w will always be 1.0.
             final_tangents[i] = Vec4::new(final_tangent.x, final_tangent.y, final_tangent.z, 1.0);
         }
     }
