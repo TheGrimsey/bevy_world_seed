@@ -42,6 +42,7 @@ fn main() {
                 amplitude: 6.0,
                 frequency: 1.0 / 30.0,
                 seed: 1,
+                filter: None
             }],
         }),
         terrain_settings: TerrainSettings {

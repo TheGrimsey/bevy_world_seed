@@ -18,7 +18,7 @@ use bevy_lookup_curve::{editor::{LookupCurveEditor, LookupCurveEguiEditor}, Look
 use bevy_world_seed::{
     material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator
-    }, meshing::TerrainMeshRebuildQueue, noise::{NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer}, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
+    }, meshing::TerrainMeshRebuildQueue, noise::{FilterComparingTo, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer}, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
 };
 
 fn main() {
@@ -42,21 +42,29 @@ fn main() {
                     amplitude: 16.0,
                     frequency: 0.005,
                     seed: 3,
+                    filter: Some(NoiseFilter {
+                        condition: NoiseFilterCondition::Above(0.4),
+                        falloff: 0.1,
+                        compare_to: FilterComparingTo::Spline { index: 0 }
+                    })
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 8.0,
                     frequency: 0.01,
                     seed: 1,
+                    filter: None
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 4.0,
                     frequency: 0.02,
                     seed: 2,
+                    filter: None
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 2.0,
                     frequency: 0.04,
                     seed: 3,
+                    filter: None
                 },
             ],
         }),

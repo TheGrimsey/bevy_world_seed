@@ -56,18 +56,41 @@ pub struct TerrainNoiseSplineLayer {
     pub seed: u32,
 }
 impl TerrainNoiseSplineLayer {
+    /// Sample noise at the x & z coordinates WITHOUT amplitude curve.
+    ///
+    /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseBaseLayer`'s `seed`.
+    /// It is not contained within the noise layer to keep the size of a layer smaller.
+    #[inline]
+    pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32
+    }
+
     /// Sample noise at the x & z coordinates.
     ///
     /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseBaseLayer`'s `seed`.
     /// It is not contained within the noise layer to keep the size of a layer smaller.
     #[inline]
     pub fn sample(&self, x: f32, z: f32, noise: &Simplex, lookup_curves: &Assets<LookupCurve>) -> f32 {
-        let noise_value =
-            noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32;
+        let noise_value = self.sample_raw(x, z, noise);
 
         lookup_curves.get(&self.amplitude_curve).map_or(0.0, |curve| curve.lookup((noise_value / 2.0) + 0.5))
     }
     
+    /// Sample the spline layer excluding the curve.
+    #[inline]
+    fn sample_simd_raw(&self, noise: &Simplex, x: Vec4, z: Vec4) -> Vec4 {
+        // Step 1: Get the noise values for all 4 positions (x, z)
+        let noise_values = Vec4::new(
+            noise.get([(x.x * self.frequency) as f64, (z.x * self.frequency) as f64]) as f32,
+            noise.get([(x.y * self.frequency) as f64, (z.y * self.frequency) as f64]) as f32,
+            noise.get([(x.z * self.frequency) as f64, (z.z * self.frequency) as f64]) as f32,
+            noise.get([(x.w * self.frequency) as f64, (z.w * self.frequency) as f64]) as f32,
+        );
+        
+        // Step 2: Normalize noise values from [-1, 1] to [0, 1]
+        (noise_values / 2.0) + Vec4::splat(0.5)
+    }
+
     #[inline]
     pub fn sample_simd(
         &self,
@@ -76,19 +99,10 @@ impl TerrainNoiseSplineLayer {
         noise: &Simplex,
         lookup_curves: &Assets<LookupCurve>,
     ) -> Vec4 {
-        // Step 1: Get the noise values for all 4 positions (x, z)
-        let noise_values = Vec4::new(
-            noise.get([(x.x * self.frequency) as f64, (z.x * self.frequency) as f64]) as f32,
-            noise.get([(x.y * self.frequency) as f64, (z.y * self.frequency) as f64]) as f32,
-            noise.get([(x.z * self.frequency) as f64, (z.z * self.frequency) as f64]) as f32,
-            noise.get([(x.w * self.frequency) as f64, (z.w * self.frequency) as f64]) as f32,
-        );
-
-        // Step 2: Normalize noise values from [-1, 1] to [0, 1]
-        let normalized_noise = (noise_values / 2.0) + Vec4::splat(0.5);
-
-        // Step 3: Fetch the lookup curve and apply it to all 4 noise values
+        // Fetch the lookup curve and apply it to all 4 noise values
         if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
+            let normalized_noise = self.sample_simd_raw(noise, x, z);
+
             Vec4::new(
                 curve.lookup(normalized_noise.x),
                 curve.lookup(normalized_noise.y),
@@ -114,34 +128,51 @@ pub struct TerrainNoiseDetailLayer {
     pub frequency: f32,
     /// Seed for the noise function.
     pub seed: u32,
+
+    /// Filter this detail layer to only apply during certain conditions.
+    pub filter: Option<NoiseFilter>
 }
 impl TerrainNoiseDetailLayer {
+    /// Sample noise at the x & z coordinates WITHOUT amplitude.
+    ///
+    /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
+    /// It is not contained within the noise layer to keep the size of a layer smaller.
+    #[inline]
+    pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32
+    }
+
     /// Sample noise at the x & z coordinates.
     ///
     /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
     /// It is not contained within the noise layer to keep the size of a layer smaller.
     #[inline]
     pub fn sample(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
-        noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32
-            * self.amplitude
+        self.sample_raw(x, z, noise) * self.amplitude
     }
     
     #[inline]
-    pub fn sample_simd(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
-        // Step 1: Get the noise values for all 4 positions (x, z)
+    fn sample_simd_raw(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
         let x = x * self.frequency;
         let z = z * self.frequency;
         
-        let noise_values = Vec4::new(
+        Vec4::new(
             noise.get([x.x as f64, z.x as f64]) as f32,
             noise.get([x.y as f64, z.y as f64]) as f32,
             noise.get([x.z as f64, z.z as f64]) as f32,
             noise.get([x.w as f64, z.w as f64]) as f32,
-        );
+        )
+    }
+
+    #[inline]
+    pub fn sample_simd(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
+        // Step 1: Get the noise values for all 4 positions (x, z)
+        let noise_values = self.sample_simd_raw(x, z, noise);
 
         // Step 2: Multiply by the amplitude
         noise_values * Vec4::splat(self.amplitude)
     }
+
 }
 impl Default for TerrainNoiseDetailLayer {
     fn default() -> Self {
@@ -149,9 +180,105 @@ impl Default for TerrainNoiseDetailLayer {
             amplitude: 1.0,
             frequency: 1.0,
             seed: 1,
+            filter: None
         }
     }
 }
+
+#[derive(Reflect, Default, Clone)]
+#[reflect(Default)]
+pub enum FilterComparingTo {
+    #[default]
+    ToSelf,
+    Spline { index: u32 },
+    Detail { index: u32 }
+}
+
+#[derive(Reflect, Default, Clone)]
+#[reflect(Default)]
+pub struct NoiseFilter {
+    pub condition: NoiseFilterCondition,
+    pub falloff: f32,
+    pub compare_to: FilterComparingTo
+}
+impl NoiseFilter {
+    fn apply_filter(
+        &self,
+        // Noise value
+        original: f32,
+        comparing_to_value: f32
+    ) -> f32 {
+        let strength = match &self.condition {
+            NoiseFilterCondition::Above(threshold) => {
+                1.0 - ((comparing_to_value - threshold).max(0.0) / self.falloff.max(f32::EPSILON))
+                .clamp(0.0, 1.0)
+            },
+            NoiseFilterCondition::Below(threshold) => {
+                1.0 - ((threshold - comparing_to_value).max(0.0) / self.falloff.max(f32::EPSILON))
+                .clamp(0.0, 1.0)
+            },
+            NoiseFilterCondition::Between { min, max } => {
+                let strength_below = 1.0
+                - ((min - comparing_to_value).max(0.0) / self.falloff.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
+                let strength_above = 1.0
+                    - ((comparing_to_value - max).max(0.0) / self.falloff.max(f32::EPSILON))
+                        .clamp(0.0, 1.0);
+    
+                strength_below.min(strength_above)
+            },
+        };
+    
+        original * strength
+    }
+    fn apply_filter_simd(
+        &self,
+        // Noise value
+        original: Vec4,
+        comparing_to_value: Vec4
+    ) -> Vec4 {
+        let strength = match &self.condition {
+            NoiseFilterCondition::Above(threshold) => {
+                Vec4::ZERO - ((comparing_to_value - Vec4::splat(*threshold)).max(Vec4::ZERO) / self.falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
+            },
+            NoiseFilterCondition::Below(threshold) => {
+                Vec4::ZERO - ((Vec4::splat(*threshold) - comparing_to_value).max(Vec4::ZERO) / self.falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
+            },
+            NoiseFilterCondition::Between { min, max } => {
+                let strength_below = 1.0
+                - ((Vec4::splat(*min) - comparing_to_value).max(Vec4::ZERO) / self.falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE);
+                let strength_above = 1.0
+                    - ((comparing_to_value - Vec4::splat(*max)).max(Vec4::ZERO) / self.falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE);
+    
+                strength_below.min(strength_above)
+            },
+        };
+    
+        original * strength
+    }
+}
+
+#[derive(Reflect, Clone)]
+#[reflect(Default)]
+pub enum NoiseFilterCondition {
+    Above(f32),
+    Below(f32),
+    Between {
+        min: f32,
+        max: f32
+    }
+}
+impl Default for NoiseFilterCondition {
+    fn default() -> Self {
+        Self::Above(0.5)
+    }
+}
+
+
 
 /// Noise layers to be applied to Terrain tiles.
 #[derive(Resource, Reflect, Clone, Default)]
@@ -196,8 +323,8 @@ pub(super) fn apply_noise_simd(heights: &mut [f32], terrain_settings: &TerrainSe
         let (x4, z4) = index_to_x_z(i + 3, edge_points);
 
         // Create SIMD vectors for x and z positions
-        let x_positions = Vec4::new(x1 as f32 * scale, x2 as f32 * scale, x3 as f32 * scale, x4 as f32 * scale);
-        let z_positions = Vec4::new(z1 as f32 * scale, z2 as f32 * scale, z3 as f32 * scale, z4 as f32 * scale);
+        let x_positions = Vec4::new(x1 as f32, x2 as f32, x3 as f32, x4 as f32) * scale;
+        let z_positions = Vec4::new(z1 as f32, z2 as f32, z3 as f32, z4 as f32) * scale;
 
         // Add terrain translation to the positions
         let x_translated = x_positions + Vec4::splat(terrain_translation.x);
@@ -218,20 +345,43 @@ pub(super) fn apply_noise_simd(heights: &mut [f32], terrain_settings: &TerrainSe
             // Process all detail layers
             for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
                 let noise = noise_cache.get_by_index(noise_detail_index_cache[j] as usize);
-                let layer_values = layer.sample_simd(x_translated, z_translated, noise);
+                let mut layer_values = layer.sample_simd(x_translated, z_translated, noise);
+
+                if let Some(filter) = &layer.filter {
+                    let sampled_values = match &filter.compare_to {
+                        FilterComparingTo::ToSelf => layer_values,
+                        FilterComparingTo::Spline { index } => {
+                            terrain_noise_layers.splines
+                                .get(*index as usize)
+                                .map(|spline| spline.sample_simd_raw(noise_cache.get_by_index(noise_spline_index_cache[*index as usize] as usize), x_translated, z_translated))
+                                .unwrap_or(Vec4::ZERO)
+                        },
+                        FilterComparingTo::Detail { index } => {
+                            terrain_noise_layers.layers
+                                .get(*index as usize)
+                                .map(|layer| layer.sample_simd_raw(x_translated, z_translated, noise_cache.get_by_index(noise_spline_index_cache[*index as usize] as usize)))
+                                .unwrap_or(Vec4::ZERO)
+                        },
+                    };
+
+                    layer_values = filter.apply_filter_simd(layer_values, sampled_values);
+                }
+
                 layer_heights += layer_values;
             }
 
+            let final_heights = spline_heights + layer_heights;
+
             // Store the results back into the heights array
-            heights[i] = spline_heights.x + layer_heights.x;
-            heights[i + 1] = spline_heights.y + layer_heights.y;
-            heights[i + 2] = spline_heights.z + layer_heights.z;
-            heights[i + 3] = spline_heights.w + layer_heights.w;
+            heights[i] = final_heights.x;
+            heights[i + 1] = final_heights.y;
+            heights[i + 2] = final_heights.z;
+            heights[i + 3] = final_heights.w;
         }
     }
 
     // Process any remaining heights that aren't divisible by 4
-    for i in simd_len..length {
+    for (i, height) in heights.iter_mut().enumerate().skip(simd_len) {
         let (x, z) = index_to_x_z(i, edge_points);
         let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
@@ -243,10 +393,32 @@ pub(super) fn apply_noise_simd(heights: &mut [f32], terrain_settings: &TerrainSe
 
             let mut layer_height = 0.0;
             for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
-                layer_height += layer.sample(vertex_position.x, vertex_position.y, noise_cache.get_by_index(noise_detail_index_cache[j] as usize));
+                let mut layer_value = layer.sample(vertex_position.x, vertex_position.y, noise_cache.get_by_index(noise_detail_index_cache[j] as usize));
+
+                if let Some(filter) = &layer.filter {
+                    let sampled_value = match &filter.compare_to {
+                        FilterComparingTo::ToSelf => layer_value,
+                        FilterComparingTo::Spline { index } => {
+                            terrain_noise_layers.splines
+                                .get(*index as usize)
+                                .map(|spline| spline.sample_raw(vertex_position.x, vertex_position.y, noise_cache.get_by_index(noise_spline_index_cache[*index as usize] as usize)))
+                                .unwrap_or(0.0)
+                        },
+                        FilterComparingTo::Detail { index } => {
+                            terrain_noise_layers.layers
+                                .get(*index as usize)
+                                .map(|layer| layer.sample_raw(vertex_position.x, vertex_position.y, noise_cache.get_by_index(noise_spline_index_cache[*index as usize] as usize)))
+                                .unwrap_or(0.0)
+                        },
+                    };
+
+                    layer_value = filter.apply_filter(layer_value, sampled_value);
+                }
+
+                layer_height += layer_value;
             }
 
-            heights[i] = spline_height + layer_height;
+            *height = spline_height + layer_height;
         }
     }
 }
