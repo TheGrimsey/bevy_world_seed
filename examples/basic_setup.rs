@@ -20,9 +20,7 @@ use bevy_world_seed::{
         TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
     },
     modifiers::{
-        ModifierTileAabb, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
-        ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle,
-        TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
+        ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape
     },
     noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
@@ -160,6 +158,7 @@ fn spawn_terrain(
                 Vec3::new(10.0, 5.0, 48.0),
             )),
         },
+        ModifierStrengthLimitProperty(0.9),
         ModifierFalloffProperty(4.0),
         ModifierHeightOperation::Set,
         TextureModifierOperation {

@@ -310,12 +310,13 @@ fn update_terrain_heights(
 
                                     let strength = 1.0
                                         - ((vertex_position.distance(shape_translation) - radius)
-                                            / falloff)
-                                            .clamp(
-                                                0.0,
-                                                modifier_strength_limit
-                                                    .map_or(1.0, |modifier| modifier.0),
-                                            );
+                                            / falloff);
+
+                                    let clamped_strength = strength.clamp(
+                                        0.0,
+                                        modifier_strength_limit
+                                            .map_or(1.0, |modifier| modifier.0),
+                                    );
 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(
@@ -325,7 +326,7 @@ fn update_terrain_heights(
                                             shape_translation,
                                             *val,
                                             global_transform,
-                                            strength,
+                                            clamped_strength,
                                             &mut noise_cache,
                                             false,
                                         );
