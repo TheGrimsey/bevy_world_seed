@@ -158,7 +158,7 @@ pub(super) fn update_terrain_spline_cache(
         Or<(
             Changed<TerrainSplineProperties>,
             Changed<TerrainSplineShape>,
-            Changed<GlobalTransform>,
+            Changed<GlobalTransform>
         )>,
     >,
     terrain_settings: Res<TerrainSettings>,
@@ -222,6 +222,7 @@ pub(super) fn update_terrain_spline_aabb(
         Or<(
             Changed<TerrainSplineCached>,
             Changed<TerrainSplineProperties>,
+            Changed<ModifierStrengthLimitProperty>,
         )>,
     >,
     terrain_settings: Res<TerrainSettings>,
@@ -341,6 +342,7 @@ pub(super) fn update_shape_modifier_aabb(
             Changed<ModifierHeightOperation>,
             Changed<ModifierHeightProperties>,
             Changed<ModifierFalloffProperty>,
+            Changed<ModifierStrengthLimitProperty>,
             Changed<GlobalTransform>,
         )>,
     >,
