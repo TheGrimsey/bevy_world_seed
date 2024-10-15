@@ -115,6 +115,7 @@ impl TerrainNoiseSplineLayer {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Clone)]
 #[reflect(Default)]
 pub struct TerrainNoiseDetailLayer {
@@ -185,6 +186,7 @@ impl Default for TerrainNoiseDetailLayer {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Default, Clone)]
 #[reflect(Default)]
 pub enum FilterComparingTo {
@@ -194,6 +196,7 @@ pub enum FilterComparingTo {
     Detail { index: u32 }
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Default, Clone)]
 #[reflect(Default)]
 pub struct NoiseFilter {
@@ -262,6 +265,7 @@ impl NoiseFilter {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Clone)]
 #[reflect(Default)]
 pub enum NoiseFilterCondition {

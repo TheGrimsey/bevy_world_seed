@@ -372,11 +372,13 @@ fn update_terrain_heights(
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
                                     let strength = 1.0
-                                        - (d_d / falloff).clamp(
-                                            0.0,
-                                            modifier_strength_limit
-                                                .map_or(1.0, |modifier| modifier.0),
-                                        );
+                                        - (d_d / falloff);
+
+                                    let clamped_strength = strength.clamp(
+                                        0.0,
+                                        modifier_strength_limit
+                                            .map_or(1.0, |modifier| modifier.0),
+                                    );
 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(
@@ -386,7 +388,7 @@ fn update_terrain_heights(
                                             shape_translation,
                                             *val,
                                             global_transform,
-                                            strength,
+                                            clamped_strength,
                                             &mut noise_cache,
                                             false,
                                         );
@@ -442,12 +444,14 @@ fn update_terrain_heights(
 
                             if let Some(height) = height {
                                 let strength = 1.0
-                                    - ((distance.sqrt() - spline_properties.half_width) / falloff)
-                                    .clamp(
-                                        0.0,
-                                        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
-                                    );
-                                *val = val.lerp(height, strength);
+                                    - ((distance.sqrt() - spline_properties.half_width) / falloff);
+                                
+                                let clamped_strength = strength.clamp(
+                                    0.0,
+                                    modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
+                                );
+
+                                *val = val.lerp(height, clamped_strength);
                             }
                         }
                     }

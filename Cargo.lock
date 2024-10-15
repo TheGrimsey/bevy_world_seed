@@ -1311,6 +1311,7 @@ dependencies = [
  "criterion",
  "fixedbitset 0.5.7",
  "noise",
+ "serde",
 ]
 
 [[package]]
