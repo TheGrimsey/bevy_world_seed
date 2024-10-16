@@ -8,8 +8,8 @@ use bevy::{
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image,
-        IntoSystemConfigs, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource,
-        Res, ResMut, Resource, Shader, With, Without,
+        IntoSystemConfigs, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res,
+        ResMut, Resource, Shader, With, Without,
     },
     reflect::Reflect,
     render::{
@@ -22,6 +22,7 @@ use bevy::{
 
 use crate::{
     distance_squared_to_line_segment,
+    easing::EasingFunction,
     meshing::TerrainMeshRebuilt,
     modifiers::{
         ModifierFalloffProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
@@ -59,7 +60,9 @@ impl Plugin for TerrainTexturingPlugin {
             PostUpdate,
             (
                 insert_texture_map.in_set(TerrainSets::Init),
-                update_terrain_texture_maps.after(TerrainSets::Meshing).in_set(TerrainSets::Material),
+                update_terrain_texture_maps
+                    .after(TerrainSets::Meshing)
+                    .in_set(TerrainSets::Material),
             )
                 .chain(),
         );
@@ -94,7 +97,7 @@ pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
     pub normal_texture: Option<Handle<Image>>,
     /// Maximum strength to apply the texture of this modifier with.
-    /// 
+    ///
     /// Range between `0.0..=1.0`
     pub max_strength: f32,
     /// Represents the size of the texture in world units.
@@ -108,7 +111,10 @@ pub struct TextureModifierOperation {
 /// Overrides [`ModifierFalloffProperty`] if present.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct TextureModifierFalloffProperty(pub f32);
+pub struct TextureModifierFalloffProperty {
+    pub falloff: f32,
+    pub easing_function: EasingFunction,
+}
 
 #[derive(Reflect, Debug)]
 pub enum TexturingRuleEvaluator {
@@ -164,11 +170,11 @@ impl TexturingRuleEvaluator {
     pub fn eval(&self, height_at_position: f32, angle_at_position: f32) -> f32 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
-                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON))
+                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
                     .clamp(0.0, 1.0)
             }
             TexturingRuleEvaluator::Below { height, falloff } => {
-                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
+                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON))
                     .clamp(0.0, 1.0)
             }
             TexturingRuleEvaluator::Between {
@@ -259,7 +265,6 @@ pub(super) struct TerrainMaterial {
     #[sampler(35)]
     texture_c_normal: Option<Handle<Image>>,
 
-
     #[uniform(36)]
     texture_c_scale: f32,
 
@@ -279,7 +284,7 @@ impl TerrainMaterial {
         self.texture_b = None;
         self.texture_c = None;
         self.texture_d = None;
-        
+
         self.texture_a_normal = None;
         self.texture_b_normal = None;
         self.texture_c_normal = None;
@@ -295,29 +300,21 @@ impl TerrainMaterial {
     ) -> Option<usize> {
         let scale = 1.0 / (units_per_texture / tile_size);
         // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
-        if self
-            .texture_a
-            .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_a_scale == scale && self.texture_a_normal == *normal)
-        {
+        if self.texture_a.as_ref().is_some_and(|entry| {
+            entry == image && self.texture_a_scale == scale && self.texture_a_normal == *normal
+        }) {
             Some(0)
-        } else if self
-            .texture_b
-            .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_b_scale == scale && self.texture_b_normal == *normal)
-        {
+        } else if self.texture_b.as_ref().is_some_and(|entry| {
+            entry == image && self.texture_b_scale == scale && self.texture_b_normal == *normal
+        }) {
             Some(1)
-        } else if self
-            .texture_c
-            .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_c_scale == scale && self.texture_c_normal == *normal)
-        {
+        } else if self.texture_c.as_ref().is_some_and(|entry| {
+            entry == image && self.texture_c_scale == scale && self.texture_c_normal == *normal
+        }) {
             Some(2)
-        } else if self
-            .texture_d
-            .as_ref()
-            .is_some_and(|entry| entry == image && self.texture_d_scale == scale && self.texture_d_normal == *normal)
-        {
+        } else if self.texture_d.as_ref().is_some_and(|entry| {
+            entry == image && self.texture_d_scale == scale && self.texture_d_normal == *normal
+        }) {
             Some(3)
         } else if self.texture_a.is_none() {
             self.texture_a = Some(image.clone());
@@ -402,7 +399,7 @@ fn insert_texture_map(
     });
 }
 
-/// Queue of terrain tiles which textures are to be rebuilt. 
+/// Queue of terrain tiles which textures are to be rebuilt.
 #[derive(Resource, Default)]
 pub struct TerrainTextureRebuildQueue(Vec<IVec2>);
 impl TerrainTextureRebuildQueue {
@@ -472,7 +469,8 @@ fn update_terrain_texture_maps(
     tiles_query
         .iter_many(
             tile_generate_queue
-                .0.drain(..tiles_to_generate)
+                .0
+                .drain(..tiles_to_generate)
                 .filter_map(|tile| tile_to_terrain.0.get(&tile))
                 .flatten(),
         )
@@ -588,11 +586,11 @@ fn update_terrain_texture_maps(
                             return;
                         };
                         let shape_translation = global_transform.translation().xz();
-                        let falloff = texture_modifier_falloff
-                            .map(|falloff| falloff.0)
-                            .or(modifier_falloff.map(|falloff| falloff.0))
-                            .unwrap_or(f32::EPSILON)
-                            .max(f32::EPSILON);
+                        let (falloff, easing_function) = texture_modifier_falloff
+                            .map(|falloff| (falloff.falloff, falloff.easing_function))
+                            .or(modifier_falloff
+                                .map(|falloff| (falloff.falloff, falloff.easing_function)))
+                            .unwrap_or((f32::EPSILON, EasingFunction::Linear));
 
                         match shape_modifier {
                             ShapeModifier::Circle { radius } => {
@@ -611,12 +609,12 @@ fn update_terrain_texture_maps(
 
                                     let strength = (1.0
                                         - ((pixel_position.distance(shape_translation) - radius)
-                                            / falloff)
-                                            .clamp(0.0, 1.0))
-                                    .min(texture_modifier.max_strength);
+                                            / falloff))
+                                        .clamp(0.0, texture_modifier.max_strength);
+                                    let eased_strength = easing_function.ease(strength);
 
                                     // Apply texture.
-                                    apply_texture(val, texture_channel, strength);
+                                    apply_texture(val, texture_channel, eased_strength);
                                 }
                             }
                             ShapeModifier::Rectangle { x, z } => {
@@ -653,11 +651,12 @@ fn update_terrain_texture_maps(
                                         .max(0.0);
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
-                                    let strength = (1.0 - (d_d / falloff).clamp(0.0, 1.0))
-                                        .min(texture_modifier.max_strength);
+                                    let strength = (1.0 - (d_d / falloff))
+                                        .clamp(0.0, texture_modifier.max_strength);
+                                    let eased_strength = easing_function.ease(strength);
 
                                     // Apply texture.
-                                    apply_texture(val, texture_channel, strength);
+                                    apply_texture(val, texture_channel, eased_strength);
                                 }
                             }
                         }
@@ -687,11 +686,11 @@ fn update_terrain_texture_maps(
                             info!("Hit max texture channels.");
                             continue;
                         };
-                        let falloff = texture_modifier_falloff
-                            .map(|falloff| falloff.0)
-                            .or(modifier_falloff.map(|falloff| falloff.0))
-                            .unwrap_or_default()
-                            .max(f32::EPSILON);
+                        let (falloff, easing_function) = texture_modifier_falloff
+                            .map(|falloff| (falloff.falloff, falloff.easing_function))
+                            .or(modifier_falloff
+                                .map(|falloff| (falloff.falloff, falloff.easing_function)))
+                            .unwrap_or((f32::EPSILON, EasingFunction::Linear));
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let (x, z) = index_to_x_z(i, resolution as usize);
@@ -720,12 +719,12 @@ fn update_terrain_texture_maps(
                             }
 
                             let strength = (1.0
-                                - ((distance.sqrt() - spline_properties.half_width) / falloff)
-                                    .clamp(0.0, 1.0))
-                            .min(texture_modifier.max_strength);
+                                - ((distance.sqrt() - spline_properties.half_width) / falloff))
+                                .clamp(0.0, texture_modifier.max_strength);
+                            let eased_strength = easing_function.ease(strength);
 
                             // Apply texture.
-                            apply_texture(val, texture_channel, strength);
+                            apply_texture(val, texture_channel, eased_strength);
                         }
                     }
                 }

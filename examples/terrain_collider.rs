@@ -24,7 +24,7 @@ use bevy_rapier3d::{
 use bevy_world_seed::{
     material::TerrainTexturingSettings,
     modifiers::{
-        ModifierTileAabb, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
+        ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ModifierTileAabb,
         ShapeModifier, ShapeModifierBundle,
     },
     noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
@@ -54,7 +54,7 @@ fn main() {
                 amplitude: 4.0,
                 frequency: 1.0 / 30.0,
                 seed: 2,
-                filter: None
+                filter: None,
             }],
         }),
         terrain_settings: TerrainSettings {

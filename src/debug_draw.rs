@@ -62,9 +62,7 @@ fn debug_draw_terrain_modifiers(
     shape_query
         .iter()
         .for_each(|(shape, modifier_falloff, global_transform)| {
-            let falloff = modifier_falloff
-                .map_or(0.0, |falloff| falloff.0)
-                .max(f32::EPSILON);
+            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.falloff);
 
             match shape {
                 ShapeModifier::Circle { radius } => {

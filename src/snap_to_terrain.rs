@@ -1,9 +1,16 @@
-//! System for automatically snapping entities to the height of the terrain. 
+//! System for automatically snapping entities to the height of the terrain.
 
 use bevy::{
-    app::{App, Plugin, PostUpdate}, ecs::entity::EntityHashSet, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
-        any_with_component, on_event, Changed, Commands, Component, Entity, EventReader, GlobalTransform, IntoSystemConfigs, Mut, Or, Parent, Query, ReflectComponent, Res, ResMut, Resource, Transform, TransformSystem, With, Without
-    }, reflect::Reflect, utils::HashMap
+    app::{App, Plugin, PostUpdate},
+    ecs::entity::EntityHashSet,
+    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
+    prelude::{
+        any_with_component, on_event, Changed, Commands, Component, Entity, EventReader,
+        GlobalTransform, IntoSystemConfigs, Mut, Or, Parent, Query, ReflectComponent, Res, ResMut,
+        Resource, Transform, TransformSystem, With, Without,
+    },
+    reflect::Reflect,
+    utils::HashMap,
 };
 
 use crate::{
@@ -37,7 +44,7 @@ impl Plugin for TerrainSnapToTerrainPlugin {
 /// Causes the entity to snap to the height of terrain.
 ///
 /// Entities are snapped when their `GlobalTransform`, `SnapToTerrain` component, or the tile is updated.
-/// 
+///
 /// The snapping is done on the global Y, meaning a child of a rotated entity will snap to the terrain below it in global space.
 /// This changes the entity's `Transform::translation` but the system tries to keep track of the original position, keeping the offset from the parent (excepting the global Y axis).
 /// This will be notable for entities with rotated parents.
@@ -57,7 +64,7 @@ struct SnapEntityTile {
     tile: IVec2,
     /// Cached offset applied to the entity.
     /// Used to "recover" an entity's position after rotated.
-    offset: Vec3
+    offset: Vec3,
 }
 
 #[derive(Resource, Default)]
@@ -66,39 +73,37 @@ struct TileToSnapEntities(HashMap<IVec2, EntityHashSet>);
 fn snap_on_added(
     mut commands: Commands,
     terrain_settings: Res<TerrainSettings>,
-    mut query: Query<
-        (Entity, &GlobalTransform),
-        (With<SnapToTerrain>, Without<SnapEntityTile>),
-    >,
+    mut query: Query<(Entity, &GlobalTransform), (With<SnapToTerrain>, Without<SnapEntityTile>)>,
     mut tile_to_snap_entities: ResMut<TileToSnapEntities>,
 ) {
-    query
-        .iter_mut()
-        .for_each(|(entity, global_transform)| {
-            let tile_coordinate = global_transform.translation().as_ivec3().xz()
-                >> terrain_settings.tile_size_power.get();
+    query.iter_mut().for_each(|(entity, global_transform)| {
+        let tile_coordinate = global_transform.translation().as_ivec3().xz()
+            >> terrain_settings.tile_size_power.get();
 
-            if let Some(entities) = tile_to_snap_entities.0.get_mut(&tile_coordinate) {
-                entities.insert(entity);
-            } else {
-                tile_to_snap_entities
-                    .0
-                    .insert(tile_coordinate, EntityHashSet::from_iter([entity]));
-            }
+        if let Some(entities) = tile_to_snap_entities.0.get_mut(&tile_coordinate) {
+            entities.insert(entity);
+        } else {
+            tile_to_snap_entities
+                .0
+                .insert(tile_coordinate, EntityHashSet::from_iter([entity]));
+        }
 
-            commands
-                .entity(entity)
-                .insert(SnapEntityTile {
-                    tile: tile_coordinate,
-                    offset: Vec3::ZERO
-                });
+        commands.entity(entity).insert(SnapEntityTile {
+            tile: tile_coordinate,
+            offset: Vec3::ZERO,
         });
+    });
 }
 
 fn snap_on_tile_rebuilt(
     terrain_settings: Res<TerrainSettings>,
     tile_to_snap_entities: Res<TileToSnapEntities>,
-    mut snap_entity_query: Query<(&mut Transform, Option<&Parent>, &SnapToTerrain, &mut SnapEntityTile)>,
+    mut snap_entity_query: Query<(
+        &mut Transform,
+        Option<&Parent>,
+        &SnapToTerrain,
+        &mut SnapEntityTile,
+    )>,
     parent_query: Query<&GlobalTransform>,
     mut rebuilt_heights_events: EventReader<TileHeightsRebuilt>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -146,14 +151,15 @@ fn update_snap_position(
     mut snap_entity_tile: Mut<'_, SnapEntityTile>,
     snap_to_terrain: &SnapToTerrain,
 ) {
-    let true_transform = transform.with_translation(transform.translation - snap_entity_tile.offset);
-    
+    let true_transform =
+        transform.with_translation(transform.translation - snap_entity_tile.offset);
+
     let true_global_transform = if let Some(parent_transform) = parent_transform {
         parent_transform.mul_transform(true_transform)
     } else {
         GlobalTransform::from(true_transform)
     };
-    
+
     let relative_location = true_global_transform.translation().xz() - tile_translation;
 
     let height = get_height_at_position_in_tile(relative_location, tile, terrain_settings);
@@ -163,7 +169,10 @@ fn update_snap_position(
     let target_translation = true_global_transform.translation().with_y(offset_height);
 
     let localized_translation = if let Some(parent_transform) = parent_transform {
-        parent_transform.affine().inverse().transform_point3(target_translation)
+        parent_transform
+            .affine()
+            .inverse()
+            .transform_point3(target_translation)
     } else {
         target_translation
     };
@@ -220,10 +229,7 @@ fn update_snap_on_transform(
             &SnapToTerrain,
             &mut SnapEntityTile,
         ),
-        Or<(
-            Changed<GlobalTransform>,
-            Changed<SnapToTerrain>
-        )>
+        Or<(Changed<GlobalTransform>, Changed<SnapToTerrain>)>,
     >,
     parent_query: Query<&GlobalTransform>,
     tiles_query: Query<&Heights>,

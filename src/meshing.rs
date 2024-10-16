@@ -1,16 +1,22 @@
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::{Assets, Handle}, log::info_span, math::{IVec2, Vec2, Vec3, Vec3A, Vec4}, prelude::{
-        Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Mesh, Query,
-        Res, ResMut, Resource,
-    }, render::{
+    app::{App, Plugin, PostUpdate},
+    asset::{Assets, Handle},
+    log::info_span,
+    math::{IVec2, Vec2, Vec3, Vec3A, Vec4},
+    prelude::{
+        Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Mesh, Query, Res,
+        ResMut, Resource,
+    },
+    render::{
         mesh::{Indices, PrimitiveTopology},
         primitives::Aabb,
         render_asset::RenderAssetUsages,
-    }
+    },
 };
 
 use crate::{
-    terrain::{Holes, TileToTerrain}, update_terrain_heights, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
+    terrain::{Holes, TileToTerrain},
+    update_terrain_heights, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
 };
 
 pub struct TerrainMeshingPlugin;
@@ -18,7 +24,9 @@ impl Plugin for TerrainMeshingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            update_mesh_from_heights.after(update_terrain_heights).in_set(TerrainSets::Meshing),
+            update_mesh_from_heights
+                .after(update_terrain_heights)
+                .in_set(TerrainSets::Meshing),
         );
 
         app.add_event::<TerrainMeshRebuilt>();
@@ -26,7 +34,7 @@ impl Plugin for TerrainMeshingPlugin {
     }
 }
 
-/// Queue of terrain tiles which meshes are to be rebuilt. 
+/// Queue of terrain tiles which meshes are to be rebuilt.
 #[derive(Resource, Default)]
 pub struct TerrainMeshRebuildQueue(Vec<IVec2>);
 impl TerrainMeshRebuildQueue {
@@ -88,7 +96,8 @@ fn update_mesh_from_heights(
     let tile_size = terrain_settings.tile_size();
 
     let tiles_to_generate = tile_generate_queue
-        .0.len()
+        .0
+        .len()
         .min(terrain_settings.max_tile_updates_per_frame.get() as usize);
 
     for tile in tile_generate_queue.0.drain(..tiles_to_generate) {
@@ -305,7 +314,7 @@ fn create_terrain_mesh(
     let step = (1.0 / vertex_edge) * size;
 
     // -X direction.
-    if let Some(neighbors) = neighbours[0] {        
+    if let Some(neighbors) = neighbours[0] {
         let _span = info_span!("Add normals from -X neighbor").entered();
 
         // Corner
@@ -357,7 +366,7 @@ fn create_terrain_mesh(
     // +X direction.
     if let Some(neighbors) = neighbours[1] {
         let _span = info_span!("Add normals from +X neighbor").entered();
-        
+
         // Ignoring corners.
         for x in (0..(num_vertices - edge_length as usize))
             .skip(edge_length as usize + edge_length as usize - 1)
@@ -388,7 +397,7 @@ fn create_terrain_mesh(
     // -Y
     if let Some(neighbors) = neighbours[2] {
         let _span = info_span!("Add normals from -Y neighbor").entered();
-        
+
         let neighbor_row = &neighbors[edge_length as usize * (edge_length as usize - 2)..];
 
         // Ignoring corners.
@@ -412,7 +421,7 @@ fn create_terrain_mesh(
     // +Y
     if let Some(neighbors) = neighbours[3] {
         let _span = info_span!("Add normals from +Y neighbor").entered();
-        
+
         let neighbor_row = &neighbors[edge_length as usize..(edge_length as usize * 2)];
 
         // Ignoring corners.
@@ -462,11 +471,16 @@ struct TangentSpace {
 }
 
 /// Generate tangents by taking advantage of the invariants of our terrain. (We can't have degenerate triangles, no standalone faces, etc)
-/// 
+///
 /// This is much faster than the regular bevy generation with very minor errors (~10e-6) or so.
-fn generate_tangents(indices: &Indices, positions: &[Vec3], uvs: &[[f32; 2]], normals: &[Vec3]) -> Vec<Vec4> {
+fn generate_tangents(
+    indices: &Indices,
+    positions: &[Vec3],
+    uvs: &[[f32; 2]],
+    normals: &[Vec3],
+) -> Vec<Vec4> {
     let _span = info_span!("Generate tangents").entered();
-    
+
     let mut tangents = vec![TangentSpace::default(); positions.len()];
 
     // Iterate over each triangle

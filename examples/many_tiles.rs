@@ -9,16 +9,28 @@ use bevy::{
     math::{Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle},
     prelude::{
-        default, Commands, GlobalTransform, Mut, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle, With, World
+        default, Commands, GlobalTransform, Mut, PluginGroup, Res, ResMut, Transform,
+        TransformBundle, VisibilityBundle, With, World,
     },
     DefaultPlugins,
 };
-use bevy_editor_pls::{default_windows::cameras::ActiveEditorCamera, editor_window::{EditorWindow, EditorWindowContext}, egui, AddEditorWindow, EditorPlugin};
-use bevy_lookup_curve::{editor::{LookupCurveEditor, LookupCurveEguiEditor}, LookupCurve};
+use bevy_editor_pls::{
+    default_windows::cameras::ActiveEditorCamera,
+    editor_window::{EditorWindow, EditorWindowContext},
+    egui, AddEditorWindow, EditorPlugin,
+};
+use bevy_lookup_curve::{
+    editor::{LookupCurveEditor, LookupCurveEguiEditor},
+    LookupCurve,
+};
 use bevy_world_seed::{
-    material::{
-        GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator
-    }, meshing::TerrainMeshRebuildQueue, noise::{FilterComparingTo, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer}, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
+    easing::EasingFunction, material::{
+        GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
+        TexturingRuleEvaluator,
+    }, meshing::TerrainMeshRebuildQueue, noise::{
+        FilterComparingTo, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer,
+        TerrainNoiseSettings, TerrainNoiseSplineLayer,
+    }, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
 };
 
 fn main() {
@@ -30,13 +42,12 @@ fn main() {
             ..default()
         }),
         EditorPlugin::default(),
-        FrameTimeDiagnosticsPlugin
+        FrameTimeDiagnosticsPlugin,
     ));
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
-            splines: vec![
-            ],
+            splines: vec![],
             layers: vec![
                 TerrainNoiseDetailLayer {
                     amplitude: 16.0,
@@ -45,26 +56,27 @@ fn main() {
                     filter: Some(NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.4),
                         falloff: 0.1,
-                        compare_to: FilterComparingTo::Spline { index: 0 }
-                    })
+                        falloff_easing_function: EasingFunction::CubicInOut,
+                        compare_to: FilterComparingTo::Spline { index: 0 },
+                    }),
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 8.0,
                     frequency: 0.01,
                     seed: 1,
-                    filter: None
+                    filter: None,
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 4.0,
                     frequency: 0.02,
                     seed: 2,
-                    filter: None
+                    filter: None,
                 },
                 TerrainNoiseDetailLayer {
                     amplitude: 2.0,
                     frequency: 0.04,
                     seed: 3,
-                    filter: None
+                    filter: None,
                 },
             ],
         }),
@@ -94,11 +106,11 @@ fn insert_rules(
     mut texturing_rules: ResMut<GlobalTexturingRules>,
     mut terrain_noise_settings: ResMut<TerrainNoiseSettings>,
     asset_server: Res<AssetServer>,
-    mut commands: Commands
+    mut commands: Commands,
 ) {
     let continentallness = asset_server.load("curves/continentallness.curve.ron");
     let peaks_and_valleys = asset_server.load("curves/peaks_and_valleys.curve.ron");
-    
+
     terrain_noise_settings.splines.extend([
         TerrainNoiseSplineLayer {
             amplitude_curve: continentallness.clone(),
@@ -124,7 +136,7 @@ fn insert_rules(
     commands.spawn(LookupCurveEditor {
         sample: Some(0.0),
         egui_editor: LookupCurveEguiEditor {
-            ron_path: Some( "./assets/curves/peaks_and_valleys.curve.ron".to_string()),
+            ron_path: Some("./assets/curves/peaks_and_valleys.curve.ron".to_string()),
             grid_step_y: 10.0,
             ..Default::default()
         },
@@ -186,8 +198,7 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
 
 pub struct NoiseDebugWindow;
 #[derive(Default)]
-pub struct NoiseDebugWindowState {
-}
+pub struct NoiseDebugWindowState {}
 impl EditorWindow for NoiseDebugWindow {
     type State = NoiseDebugWindowState;
     const NAME: &'static str = "Noise Debug";
@@ -195,13 +206,17 @@ impl EditorWindow for NoiseDebugWindow {
     fn ui(world: &mut World, _cx: EditorWindowContext, ui: &mut egui::Ui) {
         world.resource_scope(|world, mut noise_cache: Mut<NoiseCache>| {
             if ui.button("Regenerate Terrain").clicked() {
-                let mut tiles = world.resource::<TileToTerrain>().keys().cloned().collect::<Vec<_>>();
+                let mut tiles = world
+                    .resource::<TileToTerrain>()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
 
                 tiles.sort_by(|a, b| a.x.cmp(&b.x).then(a.y.cmp(&b.y)));
 
                 world.send_event_batch(tiles.into_iter().map(RebuildTile));
             }
-            
+
             let heights_queue = world.resource::<TerrainHeightRebuildQueue>();
             let mesh_queue = world.resource::<TerrainMeshRebuildQueue>();
             let texture_queue = world.resource::<TerrainTextureRebuildQueue>();
@@ -220,35 +235,53 @@ impl EditorWindow for NoiseDebugWindow {
                 });
             }
 
-            let mut query_state = world.query_filtered::<&GlobalTransform, With<ActiveEditorCamera>>();
+            let mut query_state =
+                world.query_filtered::<&GlobalTransform, With<ActiveEditorCamera>>();
             let lookup_curves = world.resource::<Assets<LookupCurve>>();
-        
+
             if let Ok(transform) = query_state.get_single(world) {
                 let noise_settings = world.resource::<TerrainNoiseSettings>();
                 let translation = transform.translation();
-    
-                let height = noise_settings.sample_position(&mut noise_cache, translation.xz(), lookup_curves);
+
+                let height = noise_settings.sample_position(
+                    &mut noise_cache,
+                    translation.xz(),
+                    lookup_curves,
+                );
                 ui.heading(format!("Height: {height}"));
 
                 ui.heading("Spline Noise");
-    
+
                 for spline in noise_settings.splines.iter() {
-                    let noise = spline.sample(translation.x, translation.z, noise_cache.get(spline.seed), lookup_curves);
+                    let noise_raw = spline.sample_raw(translation.x, translation.z, noise_cache.get(spline.seed));
+                    let noise = spline.sample(
+                        translation.x,
+                        translation.z,
+                        noise_cache.get(spline.seed),
+                        lookup_curves,
+                    );
 
                     if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
-                        ui.label(format!("- {}: {noise}", lookup_curve.name.as_ref().map_or("", |name| name.as_str())));
+                        ui.label(format!(
+                            "- {}: {noise:.5} ({noise_raw:.2})",
+                            lookup_curve.name.as_ref().map_or("", |name| name.as_str())
+                        ));
                     }
                 }
 
                 ui.heading("Detail Noise");
-                
-                for (i, detail_layer) in noise_settings.layers.iter().enumerate() {
-                    let noise = detail_layer.sample(translation.x, translation.z, noise_cache.get(detail_layer.seed));
 
-                    ui.label(format!("- Detail {i}: {noise}"));
+                for (i, detail_layer) in noise_settings.layers.iter().enumerate() {
+                    let noise_raw = detail_layer.sample_raw(translation.x, translation.z, noise_cache.get(detail_layer.seed));
+                    let noise = detail_layer.sample(
+                        translation.x,
+                        translation.z,
+                        noise_cache.get(detail_layer.seed),
+                    );
+
+                    ui.label(format!("- {i}: {noise:.5} ({noise_raw:.2})"));
                 }
             }
         });
-
     }
 }

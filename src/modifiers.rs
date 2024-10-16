@@ -8,7 +8,7 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::{noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
+use crate::{easing::EasingFunction, noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
 
 /// Bundle containing all the base components required for a Shape Modifier to function.
 ///
@@ -35,7 +35,11 @@ pub enum ShapeModifier {
 /// Affects the strength falloff of height & texture operators
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct ModifierFalloffProperty(pub f32);
+pub struct ModifierFalloffProperty {
+    /// Falloff should always be greater than 0.
+    pub falloff: f32,
+    pub easing_function: EasingFunction,
+}
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -158,7 +162,7 @@ pub(super) fn update_terrain_spline_cache(
         Or<(
             Changed<TerrainSplineProperties>,
             Changed<TerrainSplineShape>,
-            Changed<GlobalTransform>
+            Changed<GlobalTransform>,
         )>,
     >,
     terrain_settings: Res<TerrainSettings>,
@@ -222,6 +226,7 @@ pub(super) fn update_terrain_spline_aabb(
         Or<(
             Changed<TerrainSplineCached>,
             Changed<TerrainSplineProperties>,
+            Changed<ModifierFalloffProperty>,
             Changed<ModifierStrengthLimitProperty>,
         )>,
     >,
@@ -246,7 +251,7 @@ pub(super) fn update_terrain_spline_aabb(
                 }
             }
 
-            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.0.max(f32::EPSILON));
+            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.falloff);
 
             let (min, max) = if spline_cached.points.is_empty() {
                 (IVec2::ZERO, IVec2::ZERO)
@@ -279,12 +284,8 @@ pub(super) fn update_terrain_spline_aabb(
                         let a_2d = a.xz() - tile_world;
                         let b_2d = b.xz() - tile_world;
 
-                        let min = a_2d.min(b_2d)
-                            - spline_properties.half_width
-                            - falloff;
-                        let max = a_2d.max(b_2d)
-                            + spline_properties.half_width
-                            + falloff;
+                        let min = a_2d.min(b_2d) - spline_properties.half_width - falloff;
+                        let max = a_2d.max(b_2d) + spline_properties.half_width + falloff;
 
                         let min_scaled = ((min / tile_size) * 7.0).as_ivec2();
                         let max_scaled = ((max / tile_size) * 7.0).as_ivec2();
@@ -384,9 +385,7 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             };
 
-            let falloff = modifier_falloff
-                .map_or(0.0, |falloff| falloff.0)
-                .max(f32::EPSILON);
+            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.falloff);
             let min = min - falloff;
             let max = max + falloff;
 

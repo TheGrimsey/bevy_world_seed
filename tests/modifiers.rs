@@ -8,7 +8,7 @@ use bevy::{
 };
 use bevy_world_seed::{
     modifiers::{
-        ModifierTileAabb, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority,
+        ModifierHeightOperation, ModifierHeightProperties, ModifierPriority, ModifierTileAabb,
         ShapeModifier, ShapeModifierBundle,
     },
     terrain::{Terrain, TileToTerrain},

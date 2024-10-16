@@ -4,29 +4,39 @@
 use std::num::NonZeroU8;
 
 use bevy::{
-    app::{App, Plugin, PostUpdate}, asset::Assets, log::info_span, math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{
-        any_with_component, resource_changed, AnyOf, Component, Deref, DetectChanges, Event, EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut, Resource, SystemSet, TransformSystem
-    }, reflect::Reflect, transform::components::GlobalTransform
+    app::{App, Plugin, PostUpdate},
+    asset::Assets,
+    log::info_span,
+    math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles},
+    prelude::{
+        any_with_component, resource_changed, AnyOf, Component, Deref, DetectChanges, Event,
+        EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut,
+        Resource, SystemSet, TransformSystem,
+    },
+    reflect::Reflect,
+    transform::components::GlobalTransform,
 };
 use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
 #[cfg(feature = "debug_draw")]
 use debug_draw::TerrainDebugDrawPlugin;
+use easing::EasingFunction;
 #[cfg(feature = "rendering")]
 use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
 use meshing::TerrainMeshingPlugin;
 use modifiers::{
     update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache,
-    update_tile_modifier_priorities, ModifierTileAabb, ModifierFalloffProperty,
-    ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
-    ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
-    TerrainSplineShape, TileToModifierMapping,
+    update_tile_modifier_priorities, ModifierFalloffProperty, ModifierHeightOperation,
+    ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
+    ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, TerrainSplineCached,
+    TerrainSplineProperties, TerrainSplineShape, TileToModifierMapping,
 };
 use noise::{apply_noise_simd, NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
 use snap_to_terrain::TerrainSnapToTerrainPlugin;
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_squared_to_line_segment, index_to_x_z};
 
+pub mod easing;
 pub mod modifiers;
 pub mod terrain;
 
@@ -50,7 +60,7 @@ pub enum TerrainSets {
     Modifiers,
     Heights,
     Meshing,
-    Material
+    Material,
 }
 pub struct TerrainPlugin {
     pub noise_settings: Option<TerrainNoiseSettings>,
@@ -83,11 +93,16 @@ impl Plugin for TerrainPlugin {
         app.add_systems(
             PostUpdate,
             (
-                (insert_components, update_tiling).run_if(any_with_component::<Terrain>).before(update_terrain_heights).in_set(TerrainSets::Init),
+                (insert_components, update_tiling)
+                    .run_if(any_with_component::<Terrain>)
+                    .before(update_terrain_heights)
+                    .in_set(TerrainSets::Init),
                 (
                     (
                         (
-                            (update_terrain_spline_cache, update_terrain_spline_aabb).chain().run_if(any_with_component::<TerrainSplineCached>),
+                            (update_terrain_spline_cache, update_terrain_spline_aabb)
+                                .chain()
+                                .run_if(any_with_component::<TerrainSplineCached>),
                             update_shape_modifier_aabb.run_if(any_with_component::<ShapeModifier>),
                         ),
                         update_tile_modifier_priorities
@@ -95,7 +110,9 @@ impl Plugin for TerrainPlugin {
                     )
                         .chain()
                         .in_set(TerrainSets::Modifiers),
-                    update_terrain_heights.run_if(any_with_component::<Heights>).in_set(TerrainSets::Heights),
+                    update_terrain_heights
+                        .run_if(any_with_component::<Heights>)
+                        .in_set(TerrainSets::Heights),
                 )
                     .chain(),
             )
@@ -127,7 +144,7 @@ impl Plugin for TerrainPlugin {
             app.register_type::<TerrainNoiseDetailLayer>()
                 .register_type::<TerrainNoiseSettings>();
         }
-        
+
         app.init_resource::<TerrainHeightRebuildQueue>();
     }
 }
@@ -142,16 +159,16 @@ pub struct TerrainSettings {
     /// This enforces the size of a tile to be a power of 2.
     pub tile_size_power: NonZeroU8,
     /// How many points are on one edge of a terrain tile.
-    /// 
+    ///
     /// The distance between vertices is equal to `(edge_points - 1) / tile_size`.
     pub edge_points: u16,
     /// The max amount of tile height updates to do per frame.
     pub max_tile_updates_per_frame: NonZeroU8,
     /// Spline points which are closer to the previous point than this square distance are removed.
-    /// 
+    ///
     /// Used to reduce the amount of line segments to compare against when applying spline modifiers.
-    /// 
-    /// Values less than the spacing between vertices in the terrain will have little effect. Greater values will show themselves in slopes & when the curve curves on the XZ-plane. 
+    ///
+    /// Values less than the spacing between vertices in the terrain will have little effect. Greater values will show themselves in slopes & when the curve curves on the XZ-plane.
     pub max_spline_simplification_distance_squared: f32,
 }
 impl TerrainSettings {
@@ -161,7 +178,7 @@ impl TerrainSettings {
 }
 
 /// Event emitted to mark a tile to be rebuilt.
-/// 
+///
 /// Sent when modifiers are changed.
 #[derive(Event)]
 pub struct RebuildTile(pub IVec2);
@@ -174,7 +191,7 @@ pub struct TileHeightsRebuilt(pub IVec2);
 #[derive(Component, Deref, Debug)]
 pub struct Heights(Box<[f32]>);
 
-/// Queue of terrain tiles which [`Heights`] are to be rebuilt. 
+/// Queue of terrain tiles which [`Heights`] are to be rebuilt.
 #[derive(Resource, Default)]
 pub struct TerrainHeightRebuildQueue(Vec<IVec2>);
 impl TerrainHeightRebuildQueue {
@@ -215,16 +232,29 @@ fn update_terrain_heights(
     mut tile_rebuilt_events: EventWriter<TileHeightsRebuilt>,
     lookup_curves: Res<Assets<LookupCurve>>,
     mut noise_spline_index_cache: Local<Vec<u32>>,
-    mut noise_detail_index_cache: Local<Vec<u32>>
+    mut noise_detail_index_cache: Local<Vec<u32>>,
 ) {
     // Cache indexes into the noise cache for each terrain noise.
     // Saves having to do the checks and insertions for every iteration when applying the noise.
-    if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref().filter(|noise_layers| noise_layers.is_changed()) {
+    if let Some(terrain_noise_layers) = terrain_noise_layers
+        .as_ref()
+        .filter(|noise_layers| noise_layers.is_changed())
+    {
         noise_spline_index_cache.clear();
-        noise_spline_index_cache.extend(terrain_noise_layers.splines.iter().map(|spline| noise_cache.get_simplex_index(spline.seed) as u32));
+        noise_spline_index_cache.extend(
+            terrain_noise_layers
+                .splines
+                .iter()
+                .map(|spline| noise_cache.get_simplex_index(spline.seed) as u32),
+        );
 
         noise_detail_index_cache.clear();
-        noise_detail_index_cache.extend(terrain_noise_layers.layers.iter().map(|layer| noise_cache.get_simplex_index(layer.seed) as u32));
+        noise_detail_index_cache.extend(
+            terrain_noise_layers
+                .layers
+                .iter()
+                .map(|layer| noise_cache.get_simplex_index(layer.seed) as u32),
+        );
     }
 
     for RebuildTile(tile) in event_reader.read() {
@@ -238,10 +268,12 @@ fn update_terrain_heights(
     }
 
     // Don't generate if we are waiting for splines to load.
-    if terrain_noise_layers
-        .as_ref()
-        .is_some_and(|layers| layers.splines.iter().any(|layer| !lookup_curves.contains(&layer.amplitude_curve))) {
-        
+    if terrain_noise_layers.as_ref().is_some_and(|layers| {
+        layers
+            .splines
+            .iter()
+            .any(|layer| !lookup_curves.contains(&layer.amplitude_curve))
+    }) {
         return;
     }
 
@@ -270,7 +302,17 @@ fn update_terrain_heights(
             // First, set by noise.
             if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref() {
                 let _span = info_span!("Apply noise").entered();
-                apply_noise_simd(&mut heights.0, &terrain_settings, terrain_translation, scale, &noise_cache, &noise_spline_index_cache, &noise_detail_index_cache, &lookup_curves, terrain_noise_layers);
+                apply_noise_simd(
+                    &mut heights.0,
+                    &terrain_settings,
+                    terrain_translation,
+                    scale,
+                    &noise_cache,
+                    &noise_spline_index_cache,
+                    &noise_detail_index_cache,
+                    &lookup_curves,
+                    terrain_noise_layers,
+                );
             }
 
             // Secondly, set by shape-modifiers.
@@ -288,9 +330,10 @@ fn update_terrain_heights(
                     )) = shape_modifier_query.get(entry.entity)
                     {
                         let shape_translation = global_transform.translation().xz();
-                        let falloff = modifier_falloff
-                            .map_or(0.0, |falloff| falloff.0)
-                            .max(f32::EPSILON);
+                        let (falloff, easing_function) = modifier_falloff
+                            .map_or((f32::EPSILON, EasingFunction::Linear), |falloff| {
+                                (falloff.falloff, falloff.easing_function)
+                            });
 
                         match modifier {
                             ShapeModifier::Circle { radius } => {
@@ -314,9 +357,9 @@ fn update_terrain_heights(
 
                                     let clamped_strength = strength.clamp(
                                         0.0,
-                                        modifier_strength_limit
-                                            .map_or(1.0, |modifier| modifier.0),
+                                        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
                                     );
+                                    let eased_strength = easing_function.ease(clamped_strength);
 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(
@@ -326,7 +369,7 @@ fn update_terrain_heights(
                                             shape_translation,
                                             *val,
                                             global_transform,
-                                            clamped_strength,
+                                            eased_strength,
                                             &mut noise_cache,
                                             false,
                                         );
@@ -372,14 +415,13 @@ fn update_terrain_heights(
                                         .max(0.0);
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
-                                    let strength = 1.0
-                                        - (d_d / falloff);
+                                    let strength = 1.0 - (d_d / falloff);
 
                                     let clamped_strength = strength.clamp(
                                         0.0,
-                                        modifier_strength_limit
-                                            .map_or(1.0, |modifier| modifier.0),
+                                        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
                                     );
+                                    let eased_strength = easing_function.ease(clamped_strength);
 
                                     if let Some(operation) = operation {
                                         *val = apply_modifier(
@@ -389,7 +431,7 @@ fn update_terrain_heights(
                                             shape_translation,
                                             *val,
                                             global_transform,
-                                            clamped_strength,
+                                            eased_strength,
                                             &mut noise_cache,
                                             false,
                                         );
@@ -410,11 +452,18 @@ fn update_terrain_heights(
                 let _span = info_span!("Apply splines").entered();
 
                 for entry in splines.iter() {
-                    if let Ok((spline, spline_properties, modifier_falloff, modifier_strength_limit)) =
-                        spline_query.get(entry.entity)
+                    if let Ok((
+                        spline,
+                        spline_properties,
+                        modifier_falloff,
+                        modifier_strength_limit,
+                    )) = spline_query.get(entry.entity)
                     {
-                        let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.0.max(f32::EPSILON));
-                        
+                        let (falloff, easing_function) = modifier_falloff
+                            .map_or((f32::EPSILON, EasingFunction::Linear), |falloff| {
+                                (falloff.falloff, falloff.easing_function)
+                            });
+
                         for (i, val) in heights.0.iter_mut().enumerate() {
                             let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
 
@@ -446,13 +495,14 @@ fn update_terrain_heights(
                             if let Some(height) = height {
                                 let strength = 1.0
                                     - ((distance.sqrt() - spline_properties.half_width) / falloff);
-                                
+
                                 let clamped_strength = strength.clamp(
                                     0.0,
                                     modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
                                 );
+                                let eased_strength = easing_function.ease(clamped_strength);
 
-                                *val = val.lerp(height, clamped_strength);
+                                *val = val.lerp(height, eased_strength);
                             }
                         }
                     }

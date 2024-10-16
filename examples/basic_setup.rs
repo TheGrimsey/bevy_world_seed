@@ -15,12 +15,16 @@ use bevy::{
 };
 use bevy_editor_pls::EditorPlugin;
 use bevy_world_seed::{
+    easing::EasingFunction,
     material::{
         GlobalTexturingRules, TerrainTexturingSettings, TextureModifierFalloffProperty,
         TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
     },
     modifiers::{
-        ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape
+        ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
+        ModifierHoleOperation, ModifierPriority, ModifierStrengthLimitProperty, ModifierTileAabb,
+        ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached,
+        TerrainSplineProperties, TerrainSplineShape,
     },
     noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
@@ -40,7 +44,7 @@ fn main() {
                 amplitude: 6.0,
                 frequency: 1.0 / 30.0,
                 seed: 1,
-                filter: None
+                filter: None,
             }],
         }),
         terrain_settings: TerrainSettings {
@@ -107,7 +111,7 @@ fn spawn_terrain(
                 .with_translation(Vec3::ZERO),
             ..default()
         },
-        Name::new("Directional Light")
+        Name::new("Directional Light"),
     ));
 
     // Create a simple curve from a few points.
@@ -125,22 +129,26 @@ fn spawn_terrain(
         TerrainSplineBundle {
             tile_aabb: ModifierTileAabb::default(),
             spline: TerrainSplineShape { curve },
-            properties: TerrainSplineProperties {
-                half_width: 3.0,
-            },
+            properties: TerrainSplineProperties { half_width: 3.0 },
             spline_cached: TerrainSplineCached::default(),
             priority: ModifierPriority(1),
             transform_bundle: TransformBundle::default(),
         },
-        // Adding `TextureModifierOperation` so this spline applies a texture. 
+        // Adding `TextureModifierOperation` so this spline applies a texture.
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             max_strength: 0.95,
             units_per_texture: 4.0,
         },
-        ModifierFalloffProperty(4.0),
-        TextureModifierFalloffProperty(1.0),
+        ModifierFalloffProperty {
+            falloff: 8.8,
+            easing_function: EasingFunction::BackInOut,
+        },
+        TextureModifierFalloffProperty {
+            falloff: 1.0,
+            easing_function: EasingFunction::CubicIn,
+        },
         Name::new("Spline"),
     ));
 
@@ -159,7 +167,10 @@ fn spawn_terrain(
             )),
         },
         ModifierStrengthLimitProperty(0.9),
-        ModifierFalloffProperty(4.0),
+        ModifierFalloffProperty {
+            falloff: 4.0,
+            easing_function: EasingFunction::CubicInOut,
+        },
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
@@ -202,7 +213,10 @@ fn spawn_terrain(
                 Vec3::new(32.0, 5.0, 50.0),
             )),
         },
-        ModifierFalloffProperty(4.0),
+        ModifierFalloffProperty {
+            falloff: 4.0,
+            easing_function: EasingFunction::CubicInOut,
+        },
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
