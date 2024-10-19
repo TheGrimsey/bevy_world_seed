@@ -48,6 +48,8 @@ pub mod material;
 pub mod meshing;
 pub mod snap_to_terrain;
 
+pub mod feature_placement;
+
 pub mod noise;
 
 pub mod utils;
