@@ -3,14 +3,13 @@ use std::num::NonZeroU8;
 use bevy::{
     app::{App, Startup},
     asset::{AssetMode, AssetPlugin, AssetServer, Assets},
-    color::Color,
+    color::{Color, Srgba},
     core::Name,
     diagnostic::FrameTimeDiagnosticsPlugin,
     math::{Vec3, Vec3Swizzles},
-    pbr::{DirectionalLight, DirectionalLightBundle},
+    pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
-        default, Commands, GlobalTransform, Mut, PluginGroup, Res, ResMut, Transform,
-        TransformBundle, VisibilityBundle, With, World,
+        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle, With, World
     },
     DefaultPlugins,
 };
@@ -24,7 +23,7 @@ use bevy_lookup_curve::{
     LookupCurve,
 };
 use bevy_world_seed::{
-    easing::EasingFunction, material::{
+    easing::EasingFunction, feature_placement::{Feature, FeatureDespawnStrategy, FeatureGroup, FeatureSpawnStrategy, TerrainFeatures}, material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
         TexturingRuleEvaluator,
     }, meshing::TerrainMeshRebuildQueue, noise::{
@@ -105,7 +104,10 @@ fn main() {
 fn insert_rules(
     mut texturing_rules: ResMut<GlobalTexturingRules>,
     mut terrain_noise_settings: ResMut<TerrainNoiseSettings>,
+    mut terrain_features: ResMut<TerrainFeatures>,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut material: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     let continentallness = asset_server.load("curves/continentallness.curve.ron");
@@ -143,25 +145,56 @@ fn insert_rules(
         ..LookupCurveEditor::new(peaks_and_valleys)
     });
 
-    texturing_rules.rules.push(TexturingRule {
-        evaluator: TexturingRuleEvaluator::AngleGreaterThan {
-            angle_radians: 40.0_f32.to_radians(),
-            falloff_radians: 2.5_f32.to_radians(),
-        },
-        texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
-        normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
-        units_per_texture: 4.0,
-    });
+    texturing_rules.rules.extend([
+        TexturingRule {
+            evaluator: TexturingRuleEvaluator::AngleGreaterThan {
+                angle_radians: 40.0_f32.to_radians(),
+                falloff_radians: 2.5_f32.to_radians(),
+            },
+            texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
+            normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
+            units_per_texture: 4.0,
+        },TexturingRule {
+            evaluator: TexturingRuleEvaluator::AngleLessThan {
+                angle_radians: 40.0_f32.to_radians(),
+                falloff_radians: 2.5_f32.to_radians(),
+            },
+            texture: asset_server.load("textures/brown_mud_leaves.dds"),
+            normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
+            units_per_texture: 4.0,
+        }]
+    );
+    
+    let mesh_handle = meshes.add(Cuboid::from_length(1.0));
+    let material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
 
-    texturing_rules.rules.push(TexturingRule {
-        evaluator: TexturingRuleEvaluator::AngleLessThan {
-            angle_radians: 40.0_f32.to_radians(),
-            falloff_radians: 2.5_f32.to_radians(),
-        },
-        texture: asset_server.load("textures/brown_mud_leaves.dds"),
-        normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
-        units_per_texture: 4.0,
-    });
+    let spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(move |commands, terrain_entity, placements, spawned_entities| {
+        for placement in placements.iter() {
+            spawned_entities.push(commands.spawn(PbrBundle {
+                mesh: mesh_handle.clone(),
+                material: material_handle.clone(),
+                transform: Transform::from_translation(placement.position + Vec3::new(0.0, 0.5, 0.0)),
+                ..default()
+            }).set_parent(terrain_entity).id());
+        }
+    }));
+
+    terrain_features.feature_groups.extend([
+        FeatureGroup {
+            feature_seed: 5,
+            placements_per_tile: 256,
+            belongs_to_layers: 1,
+            removes_layers: 1,
+            features: vec![
+                Feature {
+                    collision_radius: 1.0,
+                    placement_conditions: Vec::default(),
+                    spawn_strategy,
+                    despawn_strategy: FeatureDespawnStrategy::Default
+                }
+            ],
+        }
+    ]);
 }
 
 fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>) {
@@ -178,7 +211,7 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
         ..default()
     });
 
-    let terrain_range = 5;
+    let terrain_range = 1;
 
     for x in -terrain_range..terrain_range {
         for z in -terrain_range..terrain_range {

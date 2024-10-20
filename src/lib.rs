@@ -20,6 +20,7 @@ use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
 #[cfg(feature = "debug_draw")]
 use debug_draw::TerrainDebugDrawPlugin;
 use easing::EasingFunction;
+use feature_placement::FeaturePlacementPlugin;
 #[cfg(feature = "rendering")]
 use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 #[cfg(feature = "rendering")]
@@ -91,6 +92,8 @@ impl Plugin for TerrainPlugin {
         if !app.is_plugin_added::<LookupCurvePlugin>() {
             app.add_plugins(LookupCurvePlugin);
         }
+
+        app.add_plugins(FeaturePlacementPlugin);
 
         app.add_systems(
             PostUpdate,

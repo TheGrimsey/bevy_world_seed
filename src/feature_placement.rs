@@ -1,4 +1,4 @@
-use bevy::{app::{App, Plugin, PostUpdate}, math::{IVec2, Vec2}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, Res, Resource}};
+use bevy::{app::{App, Plugin, PostUpdate}, math::{IVec2, Vec2, Vec3}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{terrain::TileToTerrain, utils::get_height_at_position_in_tile, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt};
@@ -7,9 +7,14 @@ pub struct FeaturePlacementPlugin;
 impl Plugin for FeaturePlacementPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PostUpdate, update_features_on_tile_built.run_if(on_event::<TileHeightsRebuilt>()).after(TerrainSets::Heights));
+
+        app.init_resource::<TerrainFeatures>();
+
+        app.register_type::<SpawnedFeatures>();
     }
 }
 
+#[derive(Reflect)]
 pub enum FeaturePlacementCondition {
     HeightBetween {
         min: f32,
@@ -28,7 +33,7 @@ pub enum FeaturePlacementCondition {
 
 pub enum FeatureSpawnStrategy {
     Scene(/* Scene Handle */),
-    Custom(Box<dyn Fn(&mut Commands, &[FeaturePlacement]) + Sync + Send>)
+    Custom(Box<dyn Fn(&mut Commands, Entity, &[FeaturePlacement], &mut Vec<Entity>) + Sync + Send>)
 }
 
 pub enum FeatureDespawnStrategy {
@@ -44,6 +49,15 @@ pub struct Feature {
     pub spawn_strategy: FeatureSpawnStrategy,
     pub despawn_strategy: FeatureDespawnStrategy,
 }
+impl Feature {
+    pub fn check_conditions(&self, placement_position: Vec3) -> bool {
+        self.placement_conditions.iter().all(|condition| {
+            match condition {
+                FeaturePlacementCondition::HeightBetween { min, max } => *min <= placement_position.y && placement_position.y <= *max,
+            }
+        })
+    }
+}
 
 pub struct FeatureGroup {
     pub feature_seed: u32,
@@ -55,46 +69,22 @@ pub struct FeatureGroup {
     pub features: Vec<Feature>
 }
 impl FeatureGroup {
-    pub fn generate_placements(&self, rng: &Rng, tile_size: f32) -> Vec<FeaturePlacement> {
-        (0..self.placements_per_tile).map(|index| {
-            FeaturePlacement {
+    pub fn generate_placements(&self, rng: &Rng, heights: &Heights, terrain_settings: &TerrainSettings) -> Vec<FeaturePlacement> {
+        let tile_size = terrain_settings.tile_size();
+
+        (0..self.placements_per_tile).filter_map(|index| {
+            let feature = rng.u32(0..self.features.len() as u32);
+            let position = Vec2::new(rng.f32() * tile_size, rng.f32() * tile_size);
+            let height = get_height_at_position_in_tile(position, heights, terrain_settings);
+
+            let position = Vec3::new(position.x, height, position.y);
+
+            Some(FeaturePlacement {
                 index,
-                feature: rng.u32(0..self.features.len() as u32),
-                position: Vec2::new(
-                    rng.f32() * tile_size,
-                    rng.f32() * tile_size
-                )
-            }
+                feature,
+                position
+            }).filter(|_| self.features[feature as usize].check_conditions(position))
         }).collect()
-    }
-}
-
-fn filter_features_by_conditions(
-    heights: &Heights,
-    terrain_settings: &TerrainSettings,
-    terrain_features: &TerrainFeatures,
-    feature_placements: &mut [Vec<FeaturePlacement>]
-) {
-    for (i, placements) in feature_placements.iter_mut().enumerate() {
-        let feature_group = &terrain_features.feature_groups[i];
-
-        placements.retain(|placement| {
-            let feature = &feature_group.features[placement.feature as usize];
-
-            feature.placement_conditions.iter().all(|condition| {
-                match condition {
-                    FeaturePlacementCondition::HeightBetween { min, max } => {
-                        let height = get_height_at_position_in_tile(placement.position, heights, terrain_settings);
-
-                        height >= *min && height <= *max
-                    },
-                    /*FeaturePlacementCondition::SlopeBetween { min_angle_radians, max_angle_radians } => {
-                        true
-                    },
-                    FeaturePlacementCondition::HeightDeltaInRadiusLessThan { radius, max_increase, max_decrease } => true,*/
-                }
-            })
-        });
     }
 }
 
@@ -164,7 +154,7 @@ pub struct TerrainFeatures {
 pub struct FeaturePlacement {
     pub index: u32,
     pub feature: u32,
-    pub position: Vec2,
+    pub position: Vec3,
 }
 
 fn cantor_hash(a: u64, b: u64) -> u64 {
@@ -208,6 +198,7 @@ fn no_seed_collisions() {
     assert!(seeds.values().all(|entries| entries.len() == 1));
 }
 
+#[derive(Reflect)]
 struct SpawnedFeature {
     group: u32,
     feature: u32,
@@ -215,7 +206,8 @@ struct SpawnedFeature {
 }
 
 /// Holds all features belonging to this tile.
-#[derive(Component, Default)]
+#[derive(Reflect, Component, Default)]
+#[reflect(Component)]
 pub struct SpawnedFeatures {
     spawned: Vec<SpawnedFeature>
 }
@@ -228,8 +220,6 @@ fn update_features_on_tile_built(
     terrain_settings: Res<TerrainSettings>,
     mut query: Query<(&Heights, &mut SpawnedFeatures)>
 ) {
-    let tile_size = terrain_settings.tile_size();
-
     for TileHeightsRebuilt(tile) in events.read() {
         let Some(tile_entity) = tile_to_terrain.get(tile).and_then(|tiles| tiles.first().cloned()) else {
             continue;
@@ -254,44 +244,64 @@ fn update_features_on_tile_built(
             }
         }
         
-        let mut feature_placements = terrain_features.feature_groups.iter().map(|feature_group| {
+        let feature_placements = terrain_features.feature_groups.iter().map(|feature_group| {
             let seed = seed_hash(*tile, feature_group.feature_seed as u64);
             let rng = Rng::with_seed(seed);
 
-            feature_group.generate_placements(&rng, tile_size)
+            feature_group.generate_placements(&rng, heights, &terrain_settings)
         }).collect::<Vec<_>>();
-        
-        filter_features_by_conditions(heights, &terrain_settings, &terrain_features, &mut feature_placements);
         
         let mut filtered_feature_placements = filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
 
         for (i, mut feature_placements) in filtered_feature_placements.drain(..).enumerate().filter(|(_, placements)| !placements.is_empty()) {
             let feature_group = &terrain_features.feature_groups[i];
+
+            // Sort placements so that placements are grouped by the feature they are for.
+            // This allows us to send slices of the same feature's placements to user code.  
             feature_placements.sort_by(|a, b| a.feature.cmp(&b.feature).then(a.index.cmp(&b.index)));
 
+            // Now that we have it sorted we just need to separate out each feature & spawn them.
             let mut start_index = 0;
             for i in 1..feature_placements.len() {
-                if feature_placements[start_index].feature != feature_placements[i].feature {
-                    let feature = &feature_group.features[start_index];
+                let feature_i = feature_placements[start_index].feature;
+                if feature_i != feature_placements[i].feature {
+                    let feature = &feature_group.features[feature_i as usize];
+                    let mut spawned_feature = SpawnedFeature {
+                        group: i as u32,
+                        feature: feature_i,
+                        instances: Vec::with_capacity(i - start_index),
+                    };
                     
                     match &feature.spawn_strategy {
                         FeatureSpawnStrategy::Scene() => todo!(),
                         FeatureSpawnStrategy::Custom(spawn_function) => {
-                            spawn_function(&mut commands, &feature_placements[start_index..i]);
+                            spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
                         },
                     }
 
+                    spawned_features.spawned.push(spawned_feature);
+
+                    // This is a new slice of features, so we move up the index.
                     start_index = i;
                 }
             }
-            let feature = &feature_group.features[start_index];
+
+            // Deal with the remaining grouping.
+            let feature_i = feature_placements[start_index].feature;
+            let feature = &feature_group.features[feature_i as usize];
+            let mut spawned_feature = SpawnedFeature {
+                group: i as u32,
+                feature: feature_i,
+                instances: Vec::with_capacity(i - start_index),
+            };
             
             match &feature.spawn_strategy {
                 FeatureSpawnStrategy::Scene() => todo!(),
                 FeatureSpawnStrategy::Custom(spawn_function) => {
-                    spawn_function(&mut commands, &feature_placements[start_index..]);
+                    spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
                 },
             }
+            spawned_features.spawned.push(spawned_feature);
         }
     }
 }

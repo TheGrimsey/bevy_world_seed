@@ -10,7 +10,7 @@ use bevy::{
 };
 use fixedbitset::FixedBitSet;
 
-use crate::{utils::index_to_x_z, Heights, RebuildTile, TerrainSettings};
+use crate::{feature_placement::SpawnedFeatures, utils::index_to_x_z, Heights, RebuildTile, TerrainSettings};
 
 /// Bitset marking which points are holes.
 /// Size should equal the amount of vertices in a terrain tile.
@@ -115,6 +115,7 @@ pub(super) fn insert_components(
         commands.entity(entity).insert((
             Heights(vec![0.0; heights].into_boxed_slice()),
             Holes(FixedBitSet::with_capacity(heights)),
+            SpawnedFeatures::default()
         ));
     });
 }

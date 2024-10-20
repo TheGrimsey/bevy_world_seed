@@ -37,15 +37,15 @@ pub fn get_height_at_position_in_tile(
         .clamp(Vec2::ZERO, Vec2::splat(1.0 - f32::EPSILON));
 
     // Convert to point out vertex.
-    let vertex_space_position = normalized_position * terrain_settings.edge_points as f32;
+    let vertex_space_position = normalized_position * (terrain_settings.edge_points - 1) as f32;
 
     let vertex_a = (vertex_space_position.y as usize * terrain_settings.edge_points as usize)
         + vertex_space_position.x as usize;
     let vertex_b = vertex_a + 1;
     let vertex_c = vertex_a + terrain_settings.edge_points as usize;
     let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
-
-    let quad_normalized_pos = vertex_space_position - vertex_space_position.round();
+    
+    let quad_normalized_pos = vertex_space_position - vertex_space_position.floor();
 
     // Skip the bounds checks.
     // SAFETY: These can never fail because of us clamping the normalized position.
@@ -119,4 +119,24 @@ pub fn index_to_x_z(index: usize, edge_points: usize) -> (usize, usize) {
     let z = index / edge_points;
 
     (x, z)
+}
+
+
+#[test]
+fn test_height_in_tile() {
+    let terrain_settings = TerrainSettings {
+        tile_size_power: std::num::NonZeroU8::MIN,
+        edge_points: 2,
+        max_spline_simplification_distance_squared: 1.0,
+        max_tile_updates_per_frame: std::num::NonZeroU8::MIN
+    };
+
+    let heights = Heights([
+        1.0, 1.0,
+        1.0, 2.0
+    ].into());
+
+    let height = get_height_at_position_in_tile(Vec2::splat(2.0), &heights, &terrain_settings);
+
+    assert!((height - 2.0).abs() <= f32::EPSILON);
 }
