@@ -1,7 +1,7 @@
-use bevy::{app::{App, Plugin, PostUpdate}, math::{IVec2, Vec2, Vec3}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
+use bevy::{app::{App, Plugin, PostUpdate}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
-use crate::{terrain::TileToTerrain, utils::get_height_at_position_in_tile, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt};
+use crate::{terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt};
 
 pub struct FeaturePlacementPlugin;
 impl Plugin for FeaturePlacementPlugin {
@@ -20,11 +20,11 @@ pub enum FeaturePlacementCondition {
         min: f32,
         max: f32
     },
-    /*SlopeBetween {
+    SlopeBetween {
         min_angle_radians: f32,
         max_angle_radians: f32
     },
-    HeightDeltaInRadiusLessThan {
+    /*HeightDeltaInRadiusLessThan {
         radius: f32,
         max_increase: f32,
         max_decrease: f32
@@ -32,7 +32,6 @@ pub enum FeaturePlacementCondition {
 }
 
 pub enum FeatureSpawnStrategy {
-    Scene(/* Scene Handle */),
     Custom(Box<dyn Fn(&mut Commands, Entity, &[FeaturePlacement], &mut Vec<Entity>) + Sync + Send>)
 }
 
@@ -50,10 +49,16 @@ pub struct Feature {
     pub despawn_strategy: FeatureDespawnStrategy,
 }
 impl Feature {
-    pub fn check_conditions(&self, placement_position: Vec3) -> bool {
+    pub fn check_conditions(&self, placement_position: Vec3, heights: &Heights, terrain_settings: &TerrainSettings) -> bool {
         self.placement_conditions.iter().all(|condition| {
             match condition {
                 FeaturePlacementCondition::HeightBetween { min, max } => *min <= placement_position.y && placement_position.y <= *max,
+                FeaturePlacementCondition::SlopeBetween { min_angle_radians, max_angle_radians } => {
+                    let normal = get_flat_normal_at_position_in_tile(placement_position.xz(), heights, terrain_settings);
+                    let angle = normal.dot(Vec3::Y).acos();
+
+                    *min_angle_radians <= angle && angle <= *max_angle_radians
+                },
             }
         })
     }
@@ -83,7 +88,7 @@ impl FeatureGroup {
                 index,
                 feature,
                 position
-            }).filter(|_| self.features[feature as usize].check_conditions(position))
+            }).filter(|_| self.features[feature as usize].check_conditions(position, heights, terrain_settings))
         }).collect()
     }
 }
@@ -218,7 +223,7 @@ fn update_features_on_tile_built(
     tile_to_terrain: Res<TileToTerrain>,
     terrain_features: Res<TerrainFeatures>,
     terrain_settings: Res<TerrainSettings>,
-    mut query: Query<(&Heights, &mut SpawnedFeatures)>
+    mut query: Query<(&Heights, &mut SpawnedFeatures)>,
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
         let Some(tile_entity) = tile_to_terrain.get(tile).and_then(|tiles| tiles.first().cloned()) else {
@@ -273,7 +278,6 @@ fn update_features_on_tile_built(
                     };
                     
                     match &feature.spawn_strategy {
-                        FeatureSpawnStrategy::Scene() => todo!(),
                         FeatureSpawnStrategy::Custom(spawn_function) => {
                             spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
                         },
@@ -296,7 +300,6 @@ fn update_features_on_tile_built(
             };
             
             match &feature.spawn_strategy {
-                FeatureSpawnStrategy::Scene() => todo!(),
                 FeatureSpawnStrategy::Custom(spawn_function) => {
                     spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
                 },

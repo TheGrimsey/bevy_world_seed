@@ -67,7 +67,7 @@ fn fragment(
     var diffuse_c = textureSample(texture_c, texture_c_sampler, texture_c_uv) * texture_weights.z;
     var diffuse_d = textureSample(texture_d, texture_d_sampler, texture_d_uv) * texture_weights.w;
 
-    var color = diffuse_a + diffuse_b + diffuse_c + diffuse_d;
+    var color = normalize(diffuse_a + diffuse_b + diffuse_c + diffuse_d);
     
     var normal_a = textureSample(texture_a_normal, texture_a_normal_sampler, texture_a_uv) * texture_weights.x;
     var normal_b = textureSample(texture_b_normal, texture_b_normal_sampler, texture_b_uv) * texture_weights.y;

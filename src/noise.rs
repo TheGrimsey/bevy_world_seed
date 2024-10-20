@@ -1,10 +1,10 @@
 use ::noise::{NoiseFn, Simplex};
 use bevy::{
-    asset::{Assets, Handle}, math::{Vec2, Vec4}, prelude::{ReflectDefault, ReflectResource, Resource}, reflect::Reflect
+    asset::{Assets, Handle}, math::{UVec4, Vec2, Vec4}, prelude::{ReflectDefault, ReflectResource, Resource}, reflect::Reflect
 };
 use bevy_lookup_curve::LookupCurve;
 
-use crate::{easing::EasingFunction, utils::index_to_x_z, TerrainSettings};
+use crate::{easing::EasingFunction, utils::{index_to_x_z, index_to_x_z_simd}, TerrainSettings};
 
 /// Cache of Simplex noise instances & which seeds they map to.
 #[derive(Default, Resource)]
@@ -353,14 +353,11 @@ pub(super) fn apply_noise_simd(
     // Process in chunks of 4
     for i in (0..simd_len).step_by(4) {
         // Unpack four (x, z) pairs in parallel
-        let (x1, z1) = index_to_x_z(i, edge_points);
-        let (x2, z2) = index_to_x_z(i + 1, edge_points);
-        let (x3, z3) = index_to_x_z(i + 2, edge_points);
-        let (x4, z4) = index_to_x_z(i + 3, edge_points);
+        let (x, z) = index_to_x_z_simd(UVec4::new(i as u32, i as u32 + 1, i as u32 + 2, i as u32 + 3), edge_points as u32);
 
         // Create SIMD vectors for x and z positions
-        let x_positions = Vec4::new(x1 as f32, x2 as f32, x3 as f32, x4 as f32) * scale;
-        let z_positions = Vec4::new(z1 as f32, z2 as f32, z3 as f32, z4 as f32) * scale;
+        let x_positions = x.as_vec4() * scale;
+        let z_positions = z.as_vec4() * scale;
 
         // Add terrain translation to the positions
         let x_translated = x_positions + Vec4::splat(terrain_translation.x);
@@ -386,7 +383,7 @@ pub(super) fn apply_noise_simd(
 
                 if let Some(filter) = &layer.filter {
                     let sampled_values = match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_values,
+                        FilterComparingTo::ToSelf => layer_values / layer.amplitude,
                         FilterComparingTo::Spline { index } => terrain_noise_layers
                             .splines
                             .get(*index as usize)

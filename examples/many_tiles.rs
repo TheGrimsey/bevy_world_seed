@@ -23,7 +23,7 @@ use bevy_lookup_curve::{
     LookupCurve,
 };
 use bevy_world_seed::{
-    easing::EasingFunction, feature_placement::{Feature, FeatureDespawnStrategy, FeatureGroup, FeatureSpawnStrategy, TerrainFeatures}, material::{
+    easing::EasingFunction, feature_placement::{Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureSpawnStrategy, TerrainFeatures}, material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
         TexturingRuleEvaluator,
     }, meshing::TerrainMeshRebuildQueue, noise::{
@@ -182,13 +182,18 @@ fn insert_rules(
     terrain_features.feature_groups.extend([
         FeatureGroup {
             feature_seed: 5,
-            placements_per_tile: 256,
+            placements_per_tile: 512,
             belongs_to_layers: 1,
             removes_layers: 1,
             features: vec![
                 Feature {
                     collision_radius: 1.0,
-                    placement_conditions: Vec::default(),
+                    placement_conditions: vec![
+                        FeaturePlacementCondition::SlopeBetween {
+                            min_angle_radians: 0.0,
+                            max_angle_radians: 45.0_f32.to_radians()
+                        }
+                    ],
                     spawn_strategy,
                     despawn_strategy: FeatureDespawnStrategy::Default
                 }

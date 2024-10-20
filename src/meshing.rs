@@ -15,8 +15,7 @@ use bevy::{
 };
 
 use crate::{
-    terrain::{Holes, TileToTerrain},
-    update_terrain_heights, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
+    terrain::{Holes, TileToTerrain}, update_terrain_heights, utils::face_normal, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct TerrainMeshingPlugin;
@@ -171,10 +170,6 @@ fn update_mesh_from_heights(
 
         repaint_texture_events.send(TerrainMeshRebuilt(tile));
     }
-}
-
-fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
-    (b - a).cross(c - a).normalize()
 }
 
 fn create_terrain_mesh(

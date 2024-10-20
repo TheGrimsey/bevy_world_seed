@@ -525,8 +525,8 @@ fn update_terrain_texture_maps(
                         let vertex_c = vertex_a + terrain_settings.edge_points as usize;
                         let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
 
-                        let local_x = x_f - x_f.round();
-                        let local_z = z_f - z_f.round();
+                        let local_x = x_f - x_f.floor();
+                        let local_z = z_f - z_f.floor();
 
                         // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
 
