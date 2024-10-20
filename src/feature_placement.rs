@@ -1,4 +1,4 @@
-use bevy::{app::{App, Plugin, PostUpdate}, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
+use bevy::{app::{App, Plugin, PostUpdate}, log::info_span, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt};
@@ -277,10 +277,13 @@ fn update_features_on_tile_built(
                         instances: Vec::with_capacity(i - start_index),
                     };
                     
-                    match &feature.spawn_strategy {
-                        FeatureSpawnStrategy::Custom(spawn_function) => {
-                            spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
-                        },
+                    {                
+                        let _span = info_span!("Spawn Feature Group").entered();
+                        match &feature.spawn_strategy {
+                            FeatureSpawnStrategy::Custom(spawn_function) => {
+                                spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
+                            },
+                        }
                     }
 
                     spawned_features.spawned.push(spawned_feature);
@@ -299,10 +302,13 @@ fn update_features_on_tile_built(
                 instances: Vec::with_capacity(i - start_index),
             };
             
-            match &feature.spawn_strategy {
-                FeatureSpawnStrategy::Custom(spawn_function) => {
-                    spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
-                },
+            {
+                let _span = info_span!("Spawn Feature Group").entered();
+                match &feature.spawn_strategy {
+                    FeatureSpawnStrategy::Custom(spawn_function) => {
+                        spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
+                    },
+                }
             }
             spawned_features.spawned.push(spawned_feature);
         }

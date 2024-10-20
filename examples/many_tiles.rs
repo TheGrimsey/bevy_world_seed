@@ -169,14 +169,14 @@ fn insert_rules(
     let material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
 
     let spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(move |commands, terrain_entity, placements, spawned_entities| {
-        for placement in placements.iter() {
-            spawned_entities.push(commands.spawn(PbrBundle {
+        spawned_entities.extend(placements.iter().map(|placement| {
+            commands.spawn(PbrBundle {
                 mesh: mesh_handle.clone(),
                 material: material_handle.clone(),
                 transform: Transform::from_translation(placement.position + Vec3::new(0.0, 0.5, 0.0)),
                 ..default()
-            }).set_parent(terrain_entity).id());
-        }
+            }).set_parent(terrain_entity).id()
+        }));
     }));
 
     terrain_features.feature_groups.extend([
