@@ -98,13 +98,12 @@ fn filter_features_by_collision(
     feature_placements: Vec<Vec<FeaturePlacement>>,
     adjacent_placements: Vec<Vec<FeaturePlacement>>
 ) -> Vec<Vec<FeaturePlacement>> {
-    let mut filtered_feature_placements = Vec::with_capacity(feature_placements.len());
-    for (i, placements_to_filter) in feature_placements.iter().enumerate() {
-        let feature_group = &terrain_features.feature_groups[i];
-        let mut filtered_placements = Vec::default();
+    let _span = info_span!("Filter features by collisions").entered();
 
-        // Now we gotta check the distance to every other thing and see if the radii overlap.
-        for placement in placements_to_filter.iter() {
+    feature_placements.iter().enumerate().map(|(i, placements_to_filter)| {
+        let feature_group = &terrain_features.feature_groups[i];
+        
+        placements_to_filter.iter().filter_map(|placement| {
             let feature = &feature_group.features[placement.feature as usize];
 
             let can_place = feature_placements.iter().enumerate().all(|(j, other_placements)| {
@@ -127,7 +126,7 @@ fn filter_features_by_collision(
                 let other_feature_group = &terrain_features.feature_groups[j];
                 let features_can_overlap = feature_group.belongs_to_layers & other_feature_group.removes_layers != 0;
 
-                if features_can_overlap {
+                if !features_can_overlap {
                     other_placements.iter().all(|other_placement| {
                         let other_feature: &Feature = &other_feature_group.features[other_placement.feature as usize];
                         let min_distance_squared = (feature.collision_radius + feature.collision_radius) * (other_feature.collision_radius + other_feature.collision_radius);
@@ -140,14 +139,12 @@ fn filter_features_by_collision(
             });
 
             if can_place {
-                filtered_placements.push(placement.clone());
+                Some(placement.clone())
+            } else {
+                None
             }
-        }
-
-        filtered_feature_placements.push(filtered_placements);
-    }
-
-    filtered_feature_placements
+        }).collect()
+    }).collect()
 }
 
 #[derive(Resource, Default)]
@@ -226,6 +223,7 @@ fn update_features_on_tile_built(
     mut query: Query<(&Heights, &mut SpawnedFeatures)>,
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
+        let _span = info_span!("Spawn features for tile").entered();
         let Some(tile_entity) = tile_to_terrain.get(tile).and_then(|tiles| tiles.first().cloned()) else {
             continue;
         };
@@ -249,21 +247,25 @@ fn update_features_on_tile_built(
             }
         }
         
-        let feature_placements = terrain_features.feature_groups.iter().map(|feature_group| {
-            let seed = seed_hash(*tile, feature_group.feature_seed as u64);
-            let rng = Rng::with_seed(seed);
+        let feature_placements = {
+            let _span = info_span!("Generate feature placements").entered();
+                terrain_features.feature_groups.iter().map(|feature_group| {
+                let seed = seed_hash(*tile, feature_group.feature_seed as u64);
+                let rng = Rng::with_seed(seed);
 
-            feature_group.generate_placements(&rng, heights, &terrain_settings)
-        }).collect::<Vec<_>>();
+                feature_group.generate_placements(&rng, heights, &terrain_settings)
+            }).collect::<Vec<_>>()
+        };
         
         let mut filtered_feature_placements = filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
 
         for (i, mut feature_placements) in filtered_feature_placements.drain(..).enumerate().filter(|(_, placements)| !placements.is_empty()) {
+            let _span = info_span!("Spawn feature group").entered();
             let feature_group = &terrain_features.feature_groups[i];
 
             // Sort placements so that placements are grouped by the feature they are for.
-            // This allows us to send slices of the same feature's placements to user code.  
-            feature_placements.sort_by(|a, b| a.feature.cmp(&b.feature).then(a.index.cmp(&b.index)));
+            // This allows us to send slices of the same feature's placements to user code.
+            feature_placements.sort_unstable_by(|a, b| a.feature.cmp(&b.feature).then(a.index.cmp(&b.index)));
 
             // Now that we have it sorted we just need to separate out each feature & spawn them.
             let mut start_index = 0;
@@ -277,8 +279,8 @@ fn update_features_on_tile_built(
                         instances: Vec::with_capacity(i - start_index),
                     };
                     
-                    {                
-                        let _span = info_span!("Spawn Feature Group").entered();
+                    {
+                        let _span = info_span!("Spawn feature").entered();
                         match &feature.spawn_strategy {
                             FeatureSpawnStrategy::Custom(spawn_function) => {
                                 spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
@@ -303,7 +305,7 @@ fn update_features_on_tile_built(
             };
             
             {
-                let _span = info_span!("Spawn Feature Group").entered();
+                let _span = info_span!("Spawn feature").entered();
                 match &feature.spawn_strategy {
                     FeatureSpawnStrategy::Custom(spawn_function) => {
                         spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
