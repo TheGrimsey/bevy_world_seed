@@ -15,7 +15,7 @@ impl Plugin for FeaturePlacementPlugin {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect)]
+#[derive(Reflect, Clone, PartialEq)]
 pub enum FeaturePlacementCondition {
     HeightBetween {
         min: f32,
