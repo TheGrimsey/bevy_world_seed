@@ -14,6 +14,7 @@ impl Plugin for FeaturePlacementPlugin {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect)]
 pub enum FeaturePlacementCondition {
     HeightBetween {
