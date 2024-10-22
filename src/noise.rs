@@ -1,10 +1,17 @@
 use ::noise::{NoiseFn, Simplex};
 use bevy::{
-    asset::{Assets, Handle}, math::{UVec4, Vec2, Vec4}, prelude::{ReflectDefault, ReflectResource, Resource}, reflect::Reflect
+    asset::{Assets, Handle},
+    math::{UVec4, Vec2, Vec4},
+    prelude::{ReflectDefault, ReflectResource, Resource},
+    reflect::Reflect,
 };
 use bevy_lookup_curve::LookupCurve;
 
-use crate::{easing::EasingFunction, utils::{index_to_x_z, index_to_x_z_simd}, TerrainSettings};
+use crate::{
+    easing::EasingFunction,
+    utils::{index_to_x_z, index_to_x_z_simd},
+    TerrainSettings,
+};
 
 /// Cache of Simplex noise instances & which seeds they map to.
 #[derive(Default, Resource)]
@@ -28,6 +35,8 @@ impl NoiseCache {
         self.noises.get_unchecked(index)
     }
 
+    /// Returns the index containing the noise with the supplied seed.
+    /// Inserts it if it doesn't exist.
     #[inline]
     pub fn get_simplex_index(&mut self, seed: u32) -> usize {
         if let Some(index) = self
@@ -85,7 +94,7 @@ impl TerrainNoiseSplineLayer {
     }
 
     /// Sample the spline layer excluding the curve.
-    /// 
+    ///
     /// The result is normalized.
     #[inline]
     fn sample_simd_raw(&self, noise: &Simplex, x: Vec4, z: Vec4) -> Vec4 {
@@ -139,16 +148,13 @@ pub struct TerrainNoiseDetailLayer {
     pub frequency: f32,
     /// Seed for the noise function.
     pub seed: u32,
-
-    /// Filter this detail layer to only apply during certain conditions.
-    pub filter: Option<NoiseFilter>,
 }
 impl TerrainNoiseDetailLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude.
     ///
     /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
     /// It is not contained within the noise layer to keep the size of a layer smaller.
-    /// 
+    ///
     /// The result is normalized.
     #[inline]
     pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
@@ -175,7 +181,8 @@ impl TerrainNoiseDetailLayer {
             noise.get([x.y as f64, z.y as f64]) as f32,
             noise.get([x.z as f64, z.z as f64]) as f32,
             noise.get([x.w as f64, z.w as f64]) as f32,
-        ) / 2.0 + Vec4::splat(0.5)
+        ) / 2.0
+            + Vec4::splat(0.5)
     }
 
     #[inline]
@@ -193,9 +200,18 @@ impl Default for TerrainNoiseDetailLayer {
             amplitude: 1.0,
             frequency: 1.0,
             seed: 1,
-            filter: None,
         }
     }
+}
+
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Default, Clone, PartialEq)]
+#[reflect(Default)]
+pub struct FilteredTerrainNoiseDetailLayer {
+    pub layer: TerrainNoiseDetailLayer,
+
+    /// Filter this detail layer to only apply during certain conditions.
+    pub filter: Option<NoiseFilter>,
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -308,7 +324,7 @@ impl Default for NoiseFilterCondition {
 pub struct TerrainNoiseSettings {
     pub splines: Vec<TerrainNoiseSplineLayer>,
 
-    pub layers: Vec<TerrainNoiseDetailLayer>,
+    pub layers: Vec<FilteredTerrainNoiseDetailLayer>,
 }
 impl TerrainNoiseSettings {
     /// Samples noise height at the position.
@@ -324,12 +340,11 @@ impl TerrainNoiseSettings {
             acc + layer.sample(pos.x, pos.y, noise_cache.get(layer.seed), lookup_curves)
         });
 
-        let layer_height = self
-            .layers
-            .iter()
-            .fold(0.0, |acc, layer: &TerrainNoiseDetailLayer| {
-                acc + layer.sample(pos.x, pos.y, noise_cache.get(layer.seed))
-            });
+        let layer_height = self.layers.iter().fold(0.0, |acc, layer| {
+            acc + layer
+                .layer
+                .sample(pos.x, pos.y, noise_cache.get(layer.layer.seed))
+        });
 
         spline_height + layer_height
     }
@@ -353,7 +368,10 @@ pub(super) fn apply_noise_simd(
     // Process in chunks of 4
     for i in (0..simd_len).step_by(4) {
         // Unpack four (x, z) pairs in parallel
-        let (x, z) = index_to_x_z_simd(UVec4::new(i as u32, i as u32 + 1, i as u32 + 2, i as u32 + 3), edge_points as u32);
+        let (x, z) = index_to_x_z_simd(
+            UVec4::new(i as u32, i as u32 + 1, i as u32 + 2, i as u32 + 3),
+            edge_points as u32,
+        );
 
         // Create SIMD vectors for x and z positions
         let x_positions = x.as_vec4() * scale;
@@ -379,11 +397,12 @@ pub(super) fn apply_noise_simd(
             // Process all detail layers
             for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
                 let noise = noise_cache.get_by_index(noise_detail_index_cache[j] as usize);
-                let mut layer_values = layer.sample_simd(x_translated, z_translated, noise);
+                let mut layer_values = layer.layer.sample_simd(x_translated, z_translated, noise);
 
                 if let Some(filter) = &layer.filter {
+                    // If there's a filter we need to sample the noise layer we compare to.
                     let sampled_values = match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_values / layer.amplitude,
+                        FilterComparingTo::ToSelf => layer_values / layer.layer.amplitude,
                         FilterComparingTo::Spline { index } => terrain_noise_layers
                             .splines
                             .get(*index as usize)
@@ -401,7 +420,7 @@ pub(super) fn apply_noise_simd(
                             .layers
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.sample_simd_raw(
+                                layer.layer.sample_simd_raw(
                                     x_translated,
                                     z_translated,
                                     noise_cache.get_by_index(
@@ -446,7 +465,7 @@ pub(super) fn apply_noise_simd(
 
             let mut layer_height = 0.0;
             for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
-                let mut layer_value = layer.sample(
+                let mut layer_value = layer.layer.sample(
                     vertex_position.x,
                     vertex_position.y,
                     noise_cache.get_by_index(noise_detail_index_cache[j] as usize),
@@ -472,7 +491,7 @@ pub(super) fn apply_noise_simd(
                             .layers
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.sample_raw(
+                                layer.layer.sample_raw(
                                     vertex_position.x,
                                     vertex_position.y,
                                     noise_cache.get_by_index(

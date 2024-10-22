@@ -21,12 +21,12 @@ use bevy_world_seed::{
         TextureModifierOperation, TexturingRule, TexturingRuleEvaluator,
     },
     modifiers::{
-        ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties,
-        ModifierHoleOperation, ModifierPriority, ModifierStrengthLimitProperty, ModifierTileAabb,
-        ShapeModifier, ShapeModifierBundle, TerrainSplineBundle, TerrainSplineCached,
-        TerrainSplineProperties, TerrainSplineShape,
+        ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierHeightOperation,
+        ModifierHeightProperties, ModifierHoleOperation, ModifierNoiseOperation, ModifierPriority,
+        ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle,
+        TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     },
-    noise::{TerrainNoiseDetailLayer, TerrainNoiseSettings},
+    noise::{FilteredTerrainNoiseDetailLayer, TerrainNoiseDetailLayer, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
     terrain::Terrain,
     TerrainPlugin, TerrainSettings,
@@ -40,10 +40,12 @@ fn main() {
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
             splines: vec![],
-            layers: vec![TerrainNoiseDetailLayer {
-                amplitude: 6.0,
-                frequency: 1.0 / 30.0,
-                seed: 1,
+            layers: vec![FilteredTerrainNoiseDetailLayer {
+                layer: TerrainNoiseDetailLayer {
+                    amplitude: 6.0,
+                    frequency: 1.0 / 30.0,
+                    seed: 1,
+                },
                 filter: None,
             }],
         }),
@@ -171,6 +173,13 @@ fn spawn_terrain(
             falloff: 4.0,
             easing_function: EasingFunction::CubicInOut,
         },
+        ModifierFalloffNoiseProperty {
+            noise: TerrainNoiseDetailLayer {
+                amplitude: 2.0,
+                frequency: 1.0,
+                seed: 5,
+            },
+        },
         ModifierHeightOperation::Set,
         TextureModifierOperation {
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
@@ -218,6 +227,13 @@ fn spawn_terrain(
             easing_function: EasingFunction::CubicInOut,
         },
         ModifierHeightOperation::Set,
+        ModifierNoiseOperation {
+            noise: TerrainNoiseDetailLayer {
+                amplitude: 2.0,
+                frequency: 0.1,
+                seed: 5,
+            },
+        },
         TextureModifierOperation {
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
             normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),

@@ -15,7 +15,10 @@ use bevy::{
 };
 
 use crate::{
-    terrain::{Holes, TileToTerrain}, update_terrain_heights, utils::face_normal, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
+    terrain::{Holes, TileToTerrain},
+    update_terrain_heights,
+    utils::face_normal,
+    Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
 };
 
 pub struct TerrainMeshingPlugin;

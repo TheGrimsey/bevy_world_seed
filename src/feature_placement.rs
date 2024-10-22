@@ -1,12 +1,30 @@
-use bevy::{app::{App, Plugin, PostUpdate}, log::info_span, math::{IVec2, Vec2, Vec3, Vec3Swizzles}, prelude::{on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs, Query, ReflectComponent, Res, Resource}, reflect::Reflect};
+use bevy::{
+    app::{App, Plugin, PostUpdate},
+    log::info_span,
+    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
+    prelude::{
+        on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs,
+        Query, ReflectComponent, Res, Resource,
+    },
+    reflect::Reflect,
+};
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
-use crate::{terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt};
+use crate::{
+    terrain::TileToTerrain,
+    utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile},
+    Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
+};
 
 pub struct FeaturePlacementPlugin;
 impl Plugin for FeaturePlacementPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, update_features_on_tile_built.run_if(on_event::<TileHeightsRebuilt>()).after(TerrainSets::Heights));
+        app.add_systems(
+            PostUpdate,
+            update_features_on_tile_built
+                .run_if(on_event::<TileHeightsRebuilt>())
+                .after(TerrainSets::Heights),
+        );
 
         app.init_resource::<TerrainFeatures>();
 
@@ -19,11 +37,11 @@ impl Plugin for FeaturePlacementPlugin {
 pub enum FeaturePlacementCondition {
     HeightBetween {
         min: f32,
-        max: f32
+        max: f32,
     },
     SlopeBetween {
         min_angle_radians: f32,
-        max_angle_radians: f32
+        max_angle_radians: f32,
     },
     /*HeightDeltaInRadiusLessThan {
         radius: f32,
@@ -33,13 +51,13 @@ pub enum FeaturePlacementCondition {
 }
 
 pub enum FeatureSpawnStrategy {
-    Custom(Box<dyn Fn(&mut Commands, Entity, &[FeaturePlacement], &mut Vec<Entity>) + Sync + Send>)
+    Custom(Box<dyn Fn(&mut Commands, Entity, &[FeaturePlacement], &mut Vec<Entity>) + Sync + Send>),
 }
 
 pub enum FeatureDespawnStrategy {
     /// Calls `despawn_recursive` on the entity.
     Default,
-    Custom(Box<dyn Fn(&mut Commands, &[Entity]) + Sync + Send>)
+    Custom(Box<dyn Fn(&mut Commands, &[Entity]) + Sync + Send>),
 }
 
 pub struct Feature {
@@ -50,18 +68,32 @@ pub struct Feature {
     pub despawn_strategy: FeatureDespawnStrategy,
 }
 impl Feature {
-    pub fn check_conditions(&self, placement_position: Vec3, heights: &Heights, terrain_settings: &TerrainSettings) -> bool {
-        self.placement_conditions.iter().all(|condition| {
-            match condition {
-                FeaturePlacementCondition::HeightBetween { min, max } => *min <= placement_position.y && placement_position.y <= *max,
-                FeaturePlacementCondition::SlopeBetween { min_angle_radians, max_angle_radians } => {
-                    let normal = get_flat_normal_at_position_in_tile(placement_position.xz(), heights, terrain_settings);
+    pub fn check_conditions(
+        &self,
+        placement_position: Vec3,
+        heights: &Heights,
+        terrain_settings: &TerrainSettings,
+    ) -> bool {
+        self.placement_conditions
+            .iter()
+            .all(|condition| match condition {
+                FeaturePlacementCondition::HeightBetween { min, max } => {
+                    *min <= placement_position.y && placement_position.y <= *max
+                }
+                FeaturePlacementCondition::SlopeBetween {
+                    min_angle_radians,
+                    max_angle_radians,
+                } => {
+                    let normal = get_flat_normal_at_position_in_tile(
+                        placement_position.xz(),
+                        heights,
+                        terrain_settings,
+                    );
                     let angle = normal.dot(Vec3::Y).acos();
 
                     *min_angle_radians <= angle && angle <= *max_angle_radians
-                },
-            }
-        })
+                }
+            })
     }
 }
 
@@ -72,85 +104,139 @@ pub struct FeatureGroup {
     pub belongs_to_layers: u64,
     pub removes_layers: u64,
 
-    pub features: Vec<Feature>
+    pub features: Vec<Feature>,
 }
 impl FeatureGroup {
-    pub fn generate_placements(&self, rng: &Rng, heights: &Heights, terrain_settings: &TerrainSettings) -> Vec<FeaturePlacement> {
+    pub fn generate_placements(
+        &self,
+        rng: &Rng,
+        heights: &Heights,
+        terrain_settings: &TerrainSettings,
+    ) -> Vec<FeaturePlacement> {
         let tile_size = terrain_settings.tile_size();
 
-        (0..self.placements_per_tile).filter_map(|index| {
-            let feature = rng.u32(0..self.features.len() as u32);
-            let position = Vec2::new(rng.f32() * tile_size, rng.f32() * tile_size);
-            let height = get_height_at_position_in_tile(position, heights, terrain_settings);
+        (0..self.placements_per_tile)
+            .filter_map(|index| {
+                let feature = rng.u32(0..self.features.len() as u32);
+                let position = Vec2::new(rng.f32() * tile_size, rng.f32() * tile_size);
+                let height = get_height_at_position_in_tile(position, heights, terrain_settings);
 
-            let position = Vec3::new(position.x, height, position.y);
+                let position = Vec3::new(position.x, height, position.y);
 
-            Some(FeaturePlacement {
-                index,
-                feature,
-                position
-            }).filter(|_| self.features[feature as usize].check_conditions(position, heights, terrain_settings))
-        }).collect()
+                Some(FeaturePlacement {
+                    index,
+                    feature,
+                    position,
+                })
+                .filter(|_| {
+                    self.features[feature as usize].check_conditions(
+                        position,
+                        heights,
+                        terrain_settings,
+                    )
+                })
+            })
+            .collect()
     }
 }
 
 fn filter_features_by_collision(
     terrain_features: &TerrainFeatures,
     feature_placements: Vec<Vec<FeaturePlacement>>,
-    adjacent_placements: Vec<Vec<FeaturePlacement>>
+    adjacent_placements: Vec<Vec<FeaturePlacement>>,
 ) -> Vec<Vec<FeaturePlacement>> {
     let _span = info_span!("Filter features by collisions").entered();
 
-    feature_placements.iter().enumerate().map(|(i, placements_to_filter)| {
-        let feature_group = &terrain_features.feature_groups[i];
-        
-        placements_to_filter.iter().filter_map(|placement| {
-            let feature = &feature_group.features[placement.feature as usize];
+    feature_placements
+        .iter()
+        .enumerate()
+        .map(|(i, placements_to_filter)| {
+            let feature_group = &terrain_features.feature_groups[i];
 
-            let can_place = feature_placements.iter().enumerate().all(|(j, other_placements)| {
-                let other_feature_group = &terrain_features.feature_groups[j];
-                let features_can_overlap = feature_group.belongs_to_layers & other_feature_group.removes_layers != 0;
-                
-                if features_can_overlap {
-                    let same_feature_group = i == j;
-                
-                    other_placements.iter().filter(|other_placement| !same_feature_group || placement.index != other_placement.index).all(|other_placement| {
-                        let other_feature: &Feature = &other_feature_group.features[other_placement.feature as usize];
-                        let min_distance_squared = (feature.collision_radius + feature.collision_radius) * (other_feature.collision_radius + other_feature.collision_radius);
+            placements_to_filter
+                .iter()
+                .filter_map(|placement| {
+                    let feature = &feature_group.features[placement.feature as usize];
 
-                        placement.position.distance_squared(other_placement.position) >= min_distance_squared
-                    })
-                } else {
-                    true
-                }
-            }) && adjacent_placements.iter().enumerate().all(|(j, other_placements)| {
-                let other_feature_group = &terrain_features.feature_groups[j];
-                let features_can_overlap = feature_group.belongs_to_layers & other_feature_group.removes_layers != 0;
+                    let can_place =
+                        feature_placements
+                            .iter()
+                            .enumerate()
+                            .all(|(j, other_placements)| {
+                                let other_feature_group = &terrain_features.feature_groups[j];
+                                let features_can_overlap = feature_group.belongs_to_layers
+                                    & other_feature_group.removes_layers
+                                    != 0;
 
-                if !features_can_overlap {
-                    other_placements.iter().all(|other_placement| {
-                        let other_feature: &Feature = &other_feature_group.features[other_placement.feature as usize];
-                        let min_distance_squared = (feature.collision_radius + feature.collision_radius) * (other_feature.collision_radius + other_feature.collision_radius);
+                                if features_can_overlap {
+                                    let same_feature_group = i == j;
 
-                        placement.position.distance_squared(other_placement.position) >= min_distance_squared
-                    })
-                } else {
-                    true
-                }
-            });
+                                    other_placements
+                                        .iter()
+                                        .filter(|other_placement| {
+                                            !same_feature_group
+                                                || placement.index != other_placement.index
+                                        })
+                                        .all(|other_placement| {
+                                            let other_feature: &Feature = &other_feature_group
+                                                .features
+                                                [other_placement.feature as usize];
+                                            let min_distance_squared = (feature.collision_radius
+                                                + feature.collision_radius)
+                                                * (other_feature.collision_radius
+                                                    + other_feature.collision_radius);
 
-            if can_place {
-                Some(placement.clone())
-            } else {
-                None
-            }
-        }).collect()
-    }).collect()
+                                            placement
+                                                .position
+                                                .distance_squared(other_placement.position)
+                                                >= min_distance_squared
+                                        })
+                                } else {
+                                    true
+                                }
+                            })
+                            && adjacent_placements.iter().enumerate().all(
+                                |(j, other_placements)| {
+                                    let other_feature_group = &terrain_features.feature_groups[j];
+                                    let features_can_overlap = feature_group.belongs_to_layers
+                                        & other_feature_group.removes_layers
+                                        != 0;
+
+                                    if !features_can_overlap {
+                                        other_placements.iter().all(|other_placement| {
+                                            let other_feature: &Feature = &other_feature_group
+                                                .features
+                                                [other_placement.feature as usize];
+                                            let min_distance_squared = (feature.collision_radius
+                                                + feature.collision_radius)
+                                                * (other_feature.collision_radius
+                                                    + other_feature.collision_radius);
+
+                                            placement
+                                                .position
+                                                .distance_squared(other_placement.position)
+                                                >= min_distance_squared
+                                        })
+                                    } else {
+                                        true
+                                    }
+                                },
+                            );
+
+                    if can_place {
+                        Some(placement.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 #[derive(Resource, Default)]
 pub struct TerrainFeatures {
-    pub feature_groups: Vec<FeatureGroup>
+    pub feature_groups: Vec<FeatureGroup>,
 }
 
 #[derive(Debug, Clone)]
@@ -174,7 +260,7 @@ pub fn seed_hash(tile: IVec2, feature_seed: u64) -> u64 {
     } else {
         tile.y as i64
     };
-    
+
     cantor_hash(x as u64, y as u64).wrapping_mul(feature_seed)
 }
 
@@ -191,7 +277,7 @@ fn no_seed_collisions() {
             let seed = seed_hash(IVec2::new(x, y), feature_seed);
 
             if let Some(entries) = seeds.get_mut(&seed) {
-                entries.push(IVec2::new(x,y));
+                entries.push(IVec2::new(x, y));
             } else {
                 seeds.insert(seed, vec![IVec2::new(x, y)]);
             }
@@ -205,14 +291,14 @@ fn no_seed_collisions() {
 struct SpawnedFeature {
     group: u32,
     feature: u32,
-    instances: Vec<Entity>
+    instances: Vec<Entity>,
 }
 
 /// Holds all features belonging to this tile.
 #[derive(Reflect, Component, Default)]
 #[reflect(Component)]
 pub struct SpawnedFeatures {
-    spawned: Vec<SpawnedFeature>
+    spawned: Vec<SpawnedFeature>,
 }
 
 fn update_features_on_tile_built(
@@ -225,7 +311,10 @@ fn update_features_on_tile_built(
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
         let _span = info_span!("Spawn features for tile").entered();
-        let Some(tile_entity) = tile_to_terrain.get(tile).and_then(|tiles| tiles.first().cloned()) else {
+        let Some(tile_entity) = tile_to_terrain
+            .get(tile)
+            .and_then(|tiles| tiles.first().cloned())
+        else {
             continue;
         };
         let Ok((heights, mut spawned_features)) = query.get_mut(tile_entity) else {
@@ -241,32 +330,42 @@ fn update_features_on_tile_built(
                     for entity in spawned_feature.instances {
                         commands.entity(entity).despawn_recursive();
                     }
-                },
+                }
                 FeatureDespawnStrategy::Custom(despawn_fn) => {
                     despawn_fn(&mut commands, &spawned_feature.instances);
-                },
+                }
             }
         }
-        
+
         let feature_placements = {
             let _span = info_span!("Generate feature placements").entered();
-                terrain_features.feature_groups.iter().map(|feature_group| {
-                let seed = seed_hash(*tile, feature_group.feature_seed as u64);
-                let rng = Rng::with_seed(seed);
+            terrain_features
+                .feature_groups
+                .iter()
+                .map(|feature_group| {
+                    let seed = seed_hash(*tile, feature_group.feature_seed as u64);
+                    let rng = Rng::with_seed(seed);
 
-                feature_group.generate_placements(&rng, heights, &terrain_settings)
-            }).collect::<Vec<_>>()
+                    feature_group.generate_placements(&rng, heights, &terrain_settings)
+                })
+                .collect::<Vec<_>>()
         };
-        
-        let mut filtered_feature_placements = filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
 
-        for (i, mut feature_placements) in filtered_feature_placements.drain(..).enumerate().filter(|(_, placements)| !placements.is_empty()) {
+        let mut filtered_feature_placements =
+            filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
+
+        for (i, mut feature_placements) in filtered_feature_placements
+            .drain(..)
+            .enumerate()
+            .filter(|(_, placements)| !placements.is_empty())
+        {
             let _span = info_span!("Spawn feature group").entered();
             let feature_group = &terrain_features.feature_groups[i];
 
             // Sort placements so that placements are grouped by the feature they are for.
             // This allows us to send slices of the same feature's placements to user code.
-            feature_placements.sort_unstable_by(|a, b| a.feature.cmp(&b.feature).then(a.index.cmp(&b.index)));
+            feature_placements
+                .sort_unstable_by(|a, b| a.feature.cmp(&b.feature).then(a.index.cmp(&b.index)));
 
             // Now that we have it sorted we just need to separate out each feature & spawn them.
             let mut start_index = 0;
@@ -279,13 +378,18 @@ fn update_features_on_tile_built(
                         feature: feature_i,
                         instances: Vec::with_capacity(i - start_index),
                     };
-                    
+
                     {
                         let _span = info_span!("Spawn feature").entered();
                         match &feature.spawn_strategy {
                             FeatureSpawnStrategy::Custom(spawn_function) => {
-                                spawn_function(&mut commands, tile_entity, &feature_placements[start_index..i], &mut spawned_feature.instances);
-                            },
+                                spawn_function(
+                                    &mut commands,
+                                    tile_entity,
+                                    &feature_placements[start_index..i],
+                                    &mut spawned_feature.instances,
+                                );
+                            }
                         }
                     }
 
@@ -304,13 +408,18 @@ fn update_features_on_tile_built(
                 feature: feature_i,
                 instances: Vec::with_capacity(i - start_index),
             };
-            
+
             {
                 let _span = info_span!("Spawn feature").entered();
                 match &feature.spawn_strategy {
                     FeatureSpawnStrategy::Custom(spawn_function) => {
-                        spawn_function(&mut commands, tile_entity, &feature_placements[start_index..], &mut spawned_feature.instances);
-                    },
+                        spawn_function(
+                            &mut commands,
+                            tile_entity,
+                            &feature_placements[start_index..],
+                            &mut spawned_feature.instances,
+                        );
+                    }
                 }
             }
             spawned_features.spawned.push(spawned_feature);

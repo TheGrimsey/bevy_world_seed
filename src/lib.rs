@@ -27,10 +27,11 @@ use material::{TerrainTexturingPlugin, TerrainTexturingSettings};
 use meshing::TerrainMeshingPlugin;
 use modifiers::{
     update_shape_modifier_aabb, update_terrain_spline_aabb, update_terrain_spline_cache,
-    update_tile_modifier_priorities, ModifierFalloffProperty, ModifierHeightOperation,
-    ModifierHeightProperties, ModifierHoleOperation, ModifierPriority,
-    ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, TerrainSplineCached,
-    TerrainSplineProperties, TerrainSplineShape, TileToModifierMapping,
+    update_tile_modifier_priorities, ModifierFalloffNoiseProperty, ModifierFalloffProperty,
+    ModifierHeightOperation, ModifierHeightProperties, ModifierHoleOperation,
+    ModifierNoiseOperation, ModifierPriority, ModifierStrengthLimitProperty, ModifierTileAabb,
+    ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
+    TileToModifierMapping,
 };
 use noise::{apply_noise_simd, NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
 use snap_to_terrain::TerrainSnapToTerrainPlugin;
@@ -140,8 +141,10 @@ impl Plugin for TerrainPlugin {
             .register_type::<ModifierHeightOperation>()
             .register_type::<ModifierPriority>()
             .register_type::<ModifierStrengthLimitProperty>()
+            .register_type::<ModifierNoiseOperation>()
             .register_type::<ModifierFalloffProperty>()
             .register_type::<ModifierHeightProperties>()
+            .register_type::<ModifierFalloffNoiseProperty>()
             .add_event::<RebuildTile>()
             .add_event::<TileHeightsRebuilt>();
 
@@ -217,8 +220,15 @@ fn update_terrain_heights(
         &ShapeModifier,
         &ModifierHeightProperties,
         Option<&ModifierStrengthLimitProperty>,
-        Option<&ModifierFalloffProperty>,
-        AnyOf<(&ModifierHeightOperation, &ModifierHoleOperation)>,
+        (
+            Option<&ModifierFalloffProperty>,
+            Option<&ModifierFalloffNoiseProperty>,
+        ),
+        AnyOf<(
+            &ModifierHeightOperation,
+            &ModifierNoiseOperation,
+            &ModifierHoleOperation,
+        )>,
         &GlobalTransform,
     )>,
     spline_query: Query<(
@@ -258,7 +268,7 @@ fn update_terrain_heights(
             terrain_noise_layers
                 .layers
                 .iter()
-                .map(|layer| noise_cache.get_simplex_index(layer.seed) as u32),
+                .map(|layer| noise_cache.get_simplex_index(layer.layer.seed) as u32),
         );
     }
 
@@ -329,88 +339,74 @@ fn update_terrain_heights(
                         modifier,
                         modifier_properties,
                         modifier_strength_limit,
-                        modifier_falloff,
-                        (operation, hole_punch),
+                        (modifier_falloff, modifier_falloff_noise),
+                        (operation, noise_operation, hole_punch),
                         global_transform,
                     )) = shape_modifier_query.get(entry.entity)
                     {
-                        let shape_translation = global_transform.translation().xz();
+                        let (_, _, shape_translation) =
+                            global_transform.to_scale_rotation_translation();
                         let (falloff, easing_function) = modifier_falloff
                             .map_or((f32::EPSILON, EasingFunction::Linear), |falloff| {
                                 (falloff.falloff, falloff.easing_function)
                             });
 
-                        match modifier {
-                            ShapeModifier::Circle { radius } => {
-                                for (i, val) in heights.0.iter_mut().enumerate() {
-                                    let (x, z) =
-                                        index_to_x_z(i, terrain_settings.edge_points as usize);
+                        // Cache the noise index.
+                        let modifier_falloff_noise = modifier_falloff_noise.map(|falloff_noise| {
+                            (
+                                falloff_noise,
+                                noise_cache.get_simplex_index(falloff_noise.noise.seed),
+                            )
+                        });
+                        let noise_operation = noise_operation.map(|noise_operation| {
+                            (
+                                noise_operation,
+                                noise_cache.get_simplex_index(noise_operation.noise.seed)
+                            )
+                        });
 
-                                    let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_index = overlap_y * 8 + overlaps_x;
-                                    if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                        continue;
-                                    }
+                        for (i, val) in heights.0.iter_mut().enumerate() {
+                            let (x, z) = index_to_x_z(i, terrain_settings.edge_points as usize);
 
-                                    let vertex_position = terrain_translation
-                                        + Vec2::new(x as f32 * scale, z as f32 * scale);
-
-                                    let strength = 1.0
-                                        - ((vertex_position.distance(shape_translation) - radius)
-                                            / falloff);
-
-                                    let clamped_strength = strength.clamp(
-                                        0.0,
-                                        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
-                                    );
-                                    let eased_strength = easing_function.ease(clamped_strength);
-
-                                    if let Some(operation) = operation {
-                                        *val = apply_modifier(
-                                            modifier_properties,
-                                            operation,
-                                            vertex_position,
-                                            shape_translation,
-                                            *val,
-                                            global_transform,
-                                            eased_strength,
-                                            &mut noise_cache,
-                                            false,
-                                        );
-                                    }
-                                    if let Some(hole_punch) = hole_punch.filter(|_| strength >= 1.0)
-                                    {
-                                        holes.0.set(i, !hole_punch.invert);
-                                    }
-                                }
+                            let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
+                            let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
+                            let overlap_index = overlap_y * 8 + overlaps_x;
+                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                                continue;
                             }
-                            ShapeModifier::Rectangle { x, z } => {
-                                let rect_min = Vec2::new(-x, -z);
-                                let rect_max = Vec2::new(*x, *z);
 
-                                for (i, val) in heights.0.iter_mut().enumerate() {
-                                    let (x, z) =
-                                        index_to_x_z(i, terrain_settings.edge_points as usize);
+                            let vertex_position =
+                                terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-                                    let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_index = overlap_y * 8 + overlaps_x;
-                                    if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                        continue;
-                                    }
+                            let vertex_local = global_transform
+                                .affine()
+                                .inverse()
+                                .transform_point3(Vec3::new(
+                                    vertex_position.x,
+                                    0.0,
+                                    vertex_position.y,
+                                ))
+                                .xz();
 
-                                    let vertex_position = terrain_translation
-                                        + Vec2::new(x as f32 * scale, z as f32 * scale);
-                                    let vertex_local = global_transform
-                                        .affine()
-                                        .inverse()
-                                        .transform_point3(Vec3::new(
-                                            vertex_position.x,
-                                            0.0,
-                                            vertex_position.y,
-                                        ))
-                                        .xz();
+                            let falloff = modifier_falloff_noise.map_or(falloff, |(falloff_noise, noise_index)| {
+                                let normalized_vertex =
+                                    shape_translation.xz() + vertex_local.normalize_or_zero();
+
+                                falloff
+                                    + falloff_noise.noise.sample(
+                                        normalized_vertex.x,
+                                        normalized_vertex.y,
+                                        unsafe { noise_cache.get_by_index(noise_index) },
+                                    )
+                            });
+
+                            let strength = match modifier {
+                                ShapeModifier::Circle { radius } => {
+                                    1.0 - ((vertex_local.distance(Vec2::ZERO) - radius) / falloff)
+                                }
+                                ShapeModifier::Rectangle { x, z } => {
+                                    let rect_min = Vec2::new(-x, -z);
+                                    let rect_max = Vec2::new(*x, *z);
 
                                     let d_x = (rect_min.x - vertex_local.x)
                                         .max(vertex_local.x - rect_max.x)
@@ -420,32 +416,37 @@ fn update_terrain_heights(
                                         .max(0.0);
                                     let d_d = (d_x * d_x + d_y * d_y).sqrt();
 
-                                    let strength = 1.0 - (d_d / falloff);
-
-                                    let clamped_strength = strength.clamp(
-                                        0.0,
-                                        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
-                                    );
-                                    let eased_strength = easing_function.ease(clamped_strength);
-
-                                    if let Some(operation) = operation {
-                                        *val = apply_modifier(
-                                            modifier_properties,
-                                            operation,
-                                            vertex_position,
-                                            shape_translation,
-                                            *val,
-                                            global_transform,
-                                            eased_strength,
-                                            &mut noise_cache,
-                                            false,
-                                        );
-                                    }
-                                    if let Some(hole_punch) = hole_punch.filter(|_| strength >= 1.0)
-                                    {
-                                        holes.0.set(i, !hole_punch.invert);
-                                    }
+                                    1.0 - (d_d / falloff)
                                 }
+                            };
+
+                            let clamped_strength = strength.clamp(
+                                0.0,
+                                modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
+                            );
+                            let eased_strength = easing_function.ease(clamped_strength);
+
+                            if let Some(operation) = operation {
+                                *val = apply_modifier(
+                                    modifier_properties,
+                                    operation,
+                                    vertex_position,
+                                    shape_translation.xz(),
+                                    *val,
+                                    global_transform,
+                                    eased_strength,
+                                    false,
+                                );
+                            }
+                            if let Some((noise_operation, noise_index)) = noise_operation {
+                                *val += noise_operation.noise.sample(
+                                    vertex_position.x,
+                                    vertex_position.y,
+                                    unsafe { noise_cache.get_by_index(noise_index) },
+                                ) * eased_strength;
+                            }
+                            if let Some(hole_punch) = hole_punch.filter(|_| strength >= 1.0) {
+                                holes.0.set(i, !hole_punch.invert);
                             }
                         }
                     }
@@ -527,7 +528,6 @@ fn apply_modifier(
     val: f32,
     global_transform: &GlobalTransform,
     strength: f32,
-    noise_cache: &mut NoiseCache,
     set_with_position_y: bool,
 ) -> f32 {
     let mut new_val = match operation {
@@ -548,14 +548,6 @@ fn apply_modifier(
         ModifierHeightOperation::Change(change) => val + *change * strength,
         ModifierHeightOperation::Step { step, smoothing } => val.lerp(
             (((val / *step) * smoothing).round() / smoothing) * *step,
-            strength,
-        ),
-        ModifierHeightOperation::Noise { noise } => val.lerp(
-            noise.sample(
-                vertex_position.x,
-                vertex_position.y,
-                noise_cache.get(noise.seed),
-            ),
             strength,
         ),
     };

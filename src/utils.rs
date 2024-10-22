@@ -44,7 +44,7 @@ pub fn get_height_at_position_in_tile(
     let vertex_b = vertex_a + 1;
     let vertex_c = vertex_a + terrain_settings.edge_points as usize;
     let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
-    
+
     let quad_normalized_pos = vertex_space_position - vertex_space_position.floor();
 
     // Skip the bounds checks.
@@ -60,7 +60,6 @@ pub fn get_height_at_position_in_tile(
         )
     }
 }
-
 
 /// Returns the flat normal at a position in a terrain tile.
 ///
@@ -81,16 +80,16 @@ pub fn get_flat_normal_at_position_in_tile(
     let vertex_b = vertex_a + 1;
     let vertex_c = vertex_a + terrain_settings.edge_points as usize;
     let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
-    
+
     let quad_normalized_pos = vertex_space_position - vertex_space_position.floor();
 
     // Skip the bounds checks.
     // SAFETY: These can never fail because of us clamping the normalized position.
     unsafe {
-        let a =*heights.0.get_unchecked(vertex_a);
-        let b =*heights.0.get_unchecked(vertex_b);
-        let c =*heights.0.get_unchecked(vertex_c);
-        let d =*heights.0.get_unchecked(vertex_d);
+        let a = *heights.0.get_unchecked(vertex_a);
+        let b = *heights.0.get_unchecked(vertex_b);
+        let c = *heights.0.get_unchecked(vertex_c);
+        let d = *heights.0.get_unchecked(vertex_d);
 
         let a = Vec3::new(0.0, a, 0.0);
         let b = Vec3::new(1.0, b, 0.0);
@@ -104,7 +103,6 @@ pub fn get_flat_normal_at_position_in_tile(
         }
     }
 }
-
 
 /// Returns the (interpolated) height at a position in a terrain quad made up of A, B, C, D points.
 ///
@@ -185,13 +183,10 @@ fn test_height_in_tile() {
         tile_size_power: std::num::NonZeroU8::MIN,
         edge_points: 2,
         max_spline_simplification_distance_squared: 1.0,
-        max_tile_updates_per_frame: std::num::NonZeroU8::MIN
+        max_tile_updates_per_frame: std::num::NonZeroU8::MIN,
     };
 
-    let heights = Heights([
-        1.0, 1.0,
-        1.0, 2.0
-    ].into());
+    let heights = Heights([1.0, 1.0, 1.0, 2.0].into());
 
     let height = get_height_at_position_in_tile(Vec2::splat(2.0), &heights, &terrain_settings);
 

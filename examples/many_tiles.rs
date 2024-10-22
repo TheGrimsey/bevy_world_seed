@@ -9,7 +9,8 @@ use bevy::{
     math::{Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
-        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle, With, World
+        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res,
+        ResMut, Transform, TransformBundle, VisibilityBundle, With, World,
     },
     DefaultPlugins,
 };
@@ -23,13 +24,23 @@ use bevy_lookup_curve::{
     LookupCurve,
 };
 use bevy_world_seed::{
-    easing::EasingFunction, feature_placement::{Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureSpawnStrategy, TerrainFeatures}, material::{
+    easing::EasingFunction,
+    feature_placement::{
+        Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition,
+        FeatureSpawnStrategy, TerrainFeatures,
+    },
+    material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
         TexturingRuleEvaluator,
-    }, meshing::TerrainMeshRebuildQueue, noise::{
-        FilterComparingTo, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer,
-        TerrainNoiseSettings, TerrainNoiseSplineLayer,
-    }, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
+    },
+    meshing::TerrainMeshRebuildQueue,
+    noise::{
+        FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter,
+        NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings,
+        TerrainNoiseSplineLayer,
+    },
+    terrain::{Terrain, TileToTerrain},
+    RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
 };
 
 fn main() {
@@ -48,10 +59,12 @@ fn main() {
         noise_settings: Some(TerrainNoiseSettings {
             splines: vec![],
             layers: vec![
-                TerrainNoiseDetailLayer {
-                    amplitude: 16.0,
-                    frequency: 0.005,
-                    seed: 3,
+                FilteredTerrainNoiseDetailLayer {
+                    layer: TerrainNoiseDetailLayer {
+                        amplitude: 16.0,
+                        frequency: 0.005,
+                        seed: 3,
+                    },
                     filter: Some(NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.4),
                         falloff: 0.1,
@@ -59,22 +72,28 @@ fn main() {
                         compare_to: FilterComparingTo::Spline { index: 0 },
                     }),
                 },
-                TerrainNoiseDetailLayer {
-                    amplitude: 8.0,
-                    frequency: 0.01,
-                    seed: 1,
+                FilteredTerrainNoiseDetailLayer {
+                    layer: TerrainNoiseDetailLayer {
+                        amplitude: 8.0,
+                        frequency: 0.01,
+                        seed: 1,
+                    },
                     filter: None,
                 },
-                TerrainNoiseDetailLayer {
-                    amplitude: 4.0,
-                    frequency: 0.02,
-                    seed: 2,
+                FilteredTerrainNoiseDetailLayer {
+                    layer: TerrainNoiseDetailLayer {
+                        amplitude: 4.0,
+                        frequency: 0.02,
+                        seed: 2,
+                    },
                     filter: None,
                 },
-                TerrainNoiseDetailLayer {
-                    amplitude: 2.0,
-                    frequency: 0.04,
-                    seed: 3,
+                FilteredTerrainNoiseDetailLayer {
+                    layer: TerrainNoiseDetailLayer {
+                        amplitude: 2.0,
+                        frequency: 0.04,
+                        seed: 3,
+                    },
                     filter: None,
                 },
             ],
@@ -154,7 +173,8 @@ fn insert_rules(
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             units_per_texture: 4.0,
-        },TexturingRule {
+        },
+        TexturingRule {
             evaluator: TexturingRuleEvaluator::AngleLessThan {
                 angle_radians: 40.0_f32.to_radians(),
                 falloff_radians: 2.5_f32.to_radians(),
@@ -162,44 +182,45 @@ fn insert_rules(
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
             normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
             units_per_texture: 4.0,
-        }]
-    );
-    
+        },
+    ]);
+
     let mesh_handle = meshes.add(Cuboid::from_length(1.0));
     let material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
 
-    let spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(move |commands, terrain_entity, placements, spawned_entities| {
-        spawned_entities.extend(placements.iter().map(|placement| {
-            commands.spawn(PbrBundle {
-                mesh: mesh_handle.clone(),
-                material: material_handle.clone(),
-                transform: Transform::from_translation(placement.position + Vec3::new(0.0, 0.5, 0.0)),
-                ..default()
-            }).set_parent(terrain_entity).id()
-        }));
-    }));
+    let spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(
+        move |commands, terrain_entity, placements, spawned_entities| {
+            spawned_entities.extend(placements.iter().map(|placement| {
+                commands
+                    .spawn(PbrBundle {
+                        mesh: mesh_handle.clone(),
+                        material: material_handle.clone(),
+                        transform: Transform::from_translation(
+                            placement.position + Vec3::new(0.0, 0.5, 0.0),
+                        ),
+                        ..default()
+                    })
+                    .set_parent(terrain_entity)
+                    .id()
+            }));
+        },
+    ));
 
-    terrain_features.feature_groups.extend([
-        FeatureGroup {
-            feature_seed: 5,
-            placements_per_tile: 512,
-            belongs_to_layers: 1,
-            removes_layers: 1,
-            features: vec![
-                Feature {
-                    collision_radius: 1.0,
-                    placement_conditions: vec![
-                        FeaturePlacementCondition::SlopeBetween {
-                            min_angle_radians: 0.0,
-                            max_angle_radians: 45.0_f32.to_radians()
-                        }
-                    ],
-                    spawn_strategy,
-                    despawn_strategy: FeatureDespawnStrategy::Default
-                }
-            ],
-        }
-    ]);
+    terrain_features.feature_groups.extend([FeatureGroup {
+        feature_seed: 5,
+        placements_per_tile: 512,
+        belongs_to_layers: 1,
+        removes_layers: 1,
+        features: vec![Feature {
+            collision_radius: 1.0,
+            placement_conditions: vec![FeaturePlacementCondition::SlopeBetween {
+                min_angle_radians: 0.0,
+                max_angle_radians: 45.0_f32.to_radians(),
+            }],
+            spawn_strategy,
+            despawn_strategy: FeatureDespawnStrategy::Default,
+        }],
+    }]);
 }
 
 fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>) {
@@ -291,7 +312,11 @@ impl EditorWindow for NoiseDebugWindow {
                 ui.heading("Spline Noise");
 
                 for spline in noise_settings.splines.iter() {
-                    let noise_raw = spline.sample_raw(translation.x, translation.z, noise_cache.get(spline.seed));
+                    let noise_raw = spline.sample_raw(
+                        translation.x,
+                        translation.z,
+                        noise_cache.get(spline.seed),
+                    );
                     let noise = spline.sample(
                         translation.x,
                         translation.z,
@@ -310,11 +335,15 @@ impl EditorWindow for NoiseDebugWindow {
                 ui.heading("Detail Noise");
 
                 for (i, detail_layer) in noise_settings.layers.iter().enumerate() {
-                    let noise_raw = detail_layer.sample_raw(translation.x, translation.z, noise_cache.get(detail_layer.seed));
-                    let noise = detail_layer.sample(
+                    let noise_raw = detail_layer.layer.sample_raw(
                         translation.x,
                         translation.z,
-                        noise_cache.get(detail_layer.seed),
+                        noise_cache.get(detail_layer.layer.seed),
+                    );
+                    let noise = detail_layer.layer.sample(
+                        translation.x,
+                        translation.z,
+                        noise_cache.get(detail_layer.layer.seed),
                     );
 
                     ui.label(format!("- {i}: {noise:.5} ({noise_raw:.2})"));

@@ -41,6 +41,15 @@ pub struct ModifierFalloffProperty {
     pub easing_function: EasingFunction,
 }
 
+/// Modify the falloff distance around a modifier.
+///
+/// Gives a more organic falloff.
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct ModifierFalloffNoiseProperty {
+    pub noise: TerrainNoiseDetailLayer,
+}
+
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct ModifierHeightProperties {
@@ -70,10 +79,13 @@ pub enum ModifierHeightOperation {
         step: f32,
         smoothing: f32,
     },
-    /// Applies a [`TerrainNoiseDetailLayer`].
-    Noise {
-        noise: TerrainNoiseDetailLayer,
-    },
+}
+
+/// Operation for adding noise on top of the terrain.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct ModifierNoiseOperation {
+    pub noise: TerrainNoiseDetailLayer,
 }
 
 /// Operation for creating holes in terrain.
@@ -335,6 +347,7 @@ pub(super) fn update_shape_modifier_aabb(
             Entity,
             &ShapeModifier,
             Option<&ModifierFalloffProperty>,
+            Option<&ModifierFalloffNoiseProperty>,
             &mut ModifierTileAabb,
             &GlobalTransform,
         ),
@@ -343,6 +356,7 @@ pub(super) fn update_shape_modifier_aabb(
             Changed<ModifierHeightOperation>,
             Changed<ModifierHeightProperties>,
             Changed<ModifierFalloffProperty>,
+            Changed<ModifierFalloffNoiseProperty>,
             Changed<ModifierStrengthLimitProperty>,
             Changed<GlobalTransform>,
         )>,
@@ -354,7 +368,14 @@ pub(super) fn update_shape_modifier_aabb(
     let tile_size = terrain_settings.tile_size();
 
     query.iter_mut().for_each(
-        |(entity, shape, modifier_falloff, mut tile_aabb, global_transform)| {
+        |(
+            entity,
+            shape,
+            modifier_falloff,
+            modifier_noise_falloff,
+            mut tile_aabb,
+            global_transform,
+        )| {
             for x in tile_aabb.min.x..=tile_aabb.max.x {
                 for y in tile_aabb.min.y..=tile_aabb.max.y {
                     let tile = IVec2::new(x, y);
@@ -372,10 +393,11 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             }
 
+            let (scale, _, translation) = global_transform.to_scale_rotation_translation();
             let (min, max) = match shape {
                 ShapeModifier::Circle { radius } => (
-                    global_transform.translation().xz() + Vec2::splat(-radius),
-                    global_transform.translation().xz() + Vec2::splat(*radius),
+                    translation.xz() + Vec2::splat(-radius) * scale.max_element(),
+                    translation.xz() + Vec2::splat(*radius) * scale.max_element(),
                 ),
                 ShapeModifier::Rectangle { x, z } => {
                     let min = global_transform.transform_point(Vec3::new(-x, 0.0, -z));
@@ -385,9 +407,11 @@ pub(super) fn update_shape_modifier_aabb(
                 }
             };
 
-            let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.falloff);
-            let min = min - falloff;
-            let max = max + falloff;
+            let falloff = modifier_falloff.map_or(0.0, |falloff| falloff.falloff);
+            let noise_falloff =
+                modifier_noise_falloff.map_or(0.0, |falloff_noise| falloff_noise.noise.amplitude);
+            let min = min - falloff - noise_falloff;
+            let max = max + falloff + noise_falloff;
 
             let tile_min = min.as_ivec2() >> terrain_settings.tile_size_power.get();
             let tile_max = max.as_ivec2() >> terrain_settings.tile_size_power.get();

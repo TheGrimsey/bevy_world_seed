@@ -4,7 +4,7 @@ use bevy::{
         palettes::css::{BLUE, DARK_CYAN, LIGHT_CYAN},
         Color,
     },
-    math::{Quat, Vec2, Vec3},
+    math::{Quat, Vec2, Vec3, Vec3Swizzles},
     prelude::{Gizmos, GlobalTransform, IntoSystemConfigs, Query, ReflectResource, Res, Resource},
     reflect::Reflect,
 };
@@ -64,37 +64,38 @@ fn debug_draw_terrain_modifiers(
         .for_each(|(shape, modifier_falloff, global_transform)| {
             let falloff = modifier_falloff.map_or(f32::EPSILON, |falloff| falloff.falloff);
 
+            let (scale, rot, translation) = global_transform.to_scale_rotation_translation();
+            let rotation = rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians());
+
             match shape {
                 ShapeModifier::Circle { radius } => {
-                    gizmos.circle(
-                        global_transform.translation(),
-                        global_transform.up(),
-                        *radius,
+                    gizmos.ellipse(
+                        translation,
+                        rotation,
+                        scale.xz() * *radius,
                         Color::from(LIGHT_CYAN),
                     );
 
                     // Falloff.
-                    gizmos.circle(
-                        global_transform.translation(),
-                        global_transform.up(),
-                        falloff + radius,
+                    gizmos.ellipse(
+                        translation,
+                        rotation,
+                        scale.xz() * (falloff + radius),
                         Color::from(DARK_CYAN),
                     );
                 }
                 ShapeModifier::Rectangle { x, z } => {
-                    let (_, rot, translation) = global_transform.to_scale_rotation_translation();
                     gizmos.rect(
                         translation,
-                        rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                        Vec2::new(*x, *z) * 2.0,
+                        rotation,
+                        scale.xz() * Vec2::new(*x, *z) * 2.0,
                         Color::from(LIGHT_CYAN),
                     );
 
-                    let (_, rot, translation) = global_transform.to_scale_rotation_translation();
                     gizmos.rect(
                         translation,
-                        rot * Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians()),
-                        Vec2::new(*x, *z) * 2.0 + falloff,
+                        rotation,
+                        scale.xz() * (Vec2::new(*x, *z) * 2.0 + falloff),
                         Color::from(DARK_CYAN),
                     );
                 }
