@@ -116,6 +116,7 @@ pub struct TextureModifierFalloffProperty {
     pub easing_function: EasingFunction,
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Debug)]
 pub enum TexturingRuleEvaluator {
     /// Applies texture to everything above `height` with a falloff distance of `falloff`
