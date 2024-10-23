@@ -165,6 +165,15 @@ pub enum TexturingRuleEvaluator {
         /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
     },
+    /// Applies texture to everything with a normal angle greater than `min_angle_radians` and less than `max_angle_radians` 
+    AngleBetween {
+        min_angle_radians: f32,
+        max_angle_radians: f32,
+        /// Falloff for strength outside of range in radians.
+        ///
+        /// Texture strength will linearly reduce for this many radians.
+        falloff_radians: f32,
+    },
 }
 impl TexturingRuleEvaluator {
     pub fn eval(&self, height_at_position: f32, angle_at_position: f32) -> f32 {
@@ -206,6 +215,19 @@ impl TexturingRuleEvaluator {
                 1.0 - ((angle_at_position - angle_radians).max(0.0)
                     / falloff_radians.max(f32::EPSILON))
                 .clamp(0.0, 1.0)
+            },
+            TexturingRuleEvaluator::AngleBetween { min_angle_radians, max_angle_radians, falloff_radians } => {
+                let strength_above = 
+                    1.0 - ((min_angle_radians - angle_at_position).max(0.0)
+                        / falloff_radians.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
+                
+                let strength_below = 
+                    1.0 - ((max_angle_radians - angle_at_position).max(0.0)
+                        / falloff_radians.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
+
+                strength_below.min(strength_above)
             }
         }
     }
