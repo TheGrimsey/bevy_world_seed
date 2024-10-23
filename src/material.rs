@@ -219,12 +219,12 @@ impl TexturingRuleEvaluator {
             },
             TexturingRuleEvaluator::AngleBetween { min_angle_radians, max_angle_radians, falloff_radians } => {
                 let strength_above = 
-                    1.0 - ((min_angle_radians - angle_at_position).max(0.0)
+                    1.0 - ((max_angle_radians - angle_at_position).max(0.0)
                         / falloff_radians.max(f32::EPSILON))
                     .clamp(0.0, 1.0);
                 
                 let strength_below = 
-                    1.0 - ((max_angle_radians - angle_at_position).max(0.0)
+                    1.0 - ((angle_at_position - min_angle_radians).max(0.0)
                         / falloff_radians.max(f32::EPSILON))
                     .clamp(0.0, 1.0);
 
