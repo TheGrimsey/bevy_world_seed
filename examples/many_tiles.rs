@@ -6,7 +6,7 @@ use bevy::{
     color::{Color, Srgba},
     core::Name,
     diagnostic::FrameTimeDiagnosticsPlugin,
-    math::{Vec3, Vec3Swizzles},
+    math::{Quat, Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
         default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res,
@@ -26,8 +26,7 @@ use bevy_lookup_curve::{
 use bevy_world_seed::{
     easing::EasingFunction,
     feature_placement::{
-        Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition,
-        FeatureSpawnStrategy, TerrainFeatures,
+        Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureScaleRandomization, FeatureSpawnStrategy, TerrainFeatures
     },
     material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
@@ -195,9 +194,11 @@ fn insert_rules(
                     .spawn(PbrBundle {
                         mesh: mesh_handle.clone(),
                         material: material_handle.clone(),
-                        transform: Transform::from_translation(
-                            placement.position + Vec3::new(0.0, 0.5, 0.0),
-                        ),
+                        transform: Transform {
+                            translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
+                            rotation: Quat::from_rotation_y(placement.yaw_rotation_radians),
+                            scale: placement.scale,
+                        },
                         ..default()
                     })
                     .set_parent(terrain_entity)
@@ -217,6 +218,8 @@ fn insert_rules(
                 min_angle_radians: 0.0,
                 max_angle_radians: 45.0_f32.to_radians(),
             }],
+            randomize_yaw_rotation: true,
+            scale_randomization: FeatureScaleRandomization::Uniform { min: 0.25, max: 2.5 },
             spawn_strategy,
             despawn_strategy: FeatureDespawnStrategy::Default,
         }],

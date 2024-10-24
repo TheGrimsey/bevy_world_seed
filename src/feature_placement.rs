@@ -1,3 +1,5 @@
+use std::f32::consts::TAU;
+
 use bevy::{
     app::{App, Plugin, PostUpdate},
     log::info_span,
@@ -33,7 +35,7 @@ impl Plugin for FeaturePlacementPlugin {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Clone, PartialEq)]
+#[derive(Reflect, Clone, PartialEq, Debug)]
 pub enum FeaturePlacementCondition {
     HeightBetween {
         min: f32,
@@ -60,9 +62,27 @@ pub enum FeatureDespawnStrategy {
     Custom(Box<dyn Fn(&mut Commands, &[Entity]) + Sync + Send>),
 }
 
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub enum FeatureScaleRandomization {
+    /// Scale will stay as Vec3::ONE,
+    None,
+    Uniform {
+        min: f32,
+        max: f32,
+    },
+    Independent {
+        min: Vec3,
+        max: Vec3
+    }
+}
+
 pub struct Feature {
     pub collision_radius: f32,
     pub placement_conditions: Vec<FeaturePlacementCondition>,
+
+    pub randomize_yaw_rotation: bool,
+    pub scale_randomization: FeatureScaleRandomization,
 
     pub spawn_strategy: FeatureSpawnStrategy,
     pub despawn_strategy: FeatureDespawnStrategy,
@@ -117,24 +137,44 @@ impl FeatureGroup {
 
         (0..self.placements_per_tile)
             .filter_map(|index| {
-                let feature = rng.u32(0..self.features.len() as u32);
+                let feature_index = rng.u32(0..self.features.len() as u32);
                 let position = Vec2::new(rng.f32() * tile_size, rng.f32() * tile_size);
                 let height = get_height_at_position_in_tile(position, heights, terrain_settings);
 
                 let position = Vec3::new(position.x, height, position.y);
 
-                Some(FeaturePlacement {
-                    index,
-                    feature,
+                let feature = &self.features[feature_index as usize]; 
+                
+                if feature.check_conditions(
                     position,
-                })
-                .filter(|_| {
-                    self.features[feature as usize].check_conditions(
+                    heights,
+                    terrain_settings,
+                ) {
+                    let scale = match &feature.scale_randomization {
+                        FeatureScaleRandomization::None => Vec3::ONE,
+                        FeatureScaleRandomization::Uniform { min, max } => Vec3::splat(*min + rng.f32() * (*max - *min)),
+                        FeatureScaleRandomization::Independent { min, max } => {
+                            let rng = Vec3::new(rng.f32(), rng.f32(), rng.f32());
+
+                            *min + rng * (*max - *min)
+                        },
+                    };
+                    let yaw_rotation_radians = if feature.randomize_yaw_rotation {
+                        rng.f32() * TAU
+                    } else {
+                        0.0
+                    };
+
+                    Some(FeaturePlacement {
+                        index,
+                        feature: feature_index,
                         position,
-                        heights,
-                        terrain_settings,
-                    )
-                })
+                        scale,
+                        yaw_rotation_radians
+                    })
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -157,6 +197,8 @@ fn filter_features_by_collision(
                 .iter()
                 .filter_map(|placement| {
                     let feature = &feature_group.features[placement.feature as usize];
+
+                    let placement_radius = feature.collision_radius * placement.scale.xz().max_element();
 
                     let can_place =
                         feature_placements
@@ -181,10 +223,9 @@ fn filter_features_by_collision(
                                             let other_feature: &Feature = &other_feature_group
                                                 .features
                                                 [other_placement.feature as usize];
-                                            let min_distance_squared = (feature.collision_radius
-                                                + feature.collision_radius)
-                                                * (other_feature.collision_radius
-                                                    + other_feature.collision_radius);
+
+                                            let radii_sum = placement_radius + (other_feature.collision_radius * other_placement.scale.xz().max_element());
+                                            let min_distance_squared = radii_sum * radii_sum;
 
                                             placement
                                                 .position
@@ -244,6 +285,8 @@ pub struct FeaturePlacement {
     pub index: u32,
     pub feature: u32,
     pub position: Vec3,
+    pub scale: Vec3,
+    pub yaw_rotation_radians: f32
 }
 
 fn cantor_hash(a: u64, b: u64) -> u64 {
