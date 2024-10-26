@@ -63,9 +63,10 @@ pub enum FeatureDespawnStrategy {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum FeatureScaleRandomization {
     /// Scale will stay as Vec3::ONE,
+    #[default]
     None,
     Uniform {
         min: f32,
