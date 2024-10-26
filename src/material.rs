@@ -4,7 +4,7 @@ use bevy::{
     app::{App, Plugin, PostUpdate},
     asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
     log::{info, info_span},
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
+    math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4},
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
     prelude::{
         default, Commands, Component, Entity, EventReader, GlobalTransform, Image,
@@ -29,7 +29,7 @@ use crate::{
         TileToModifierMapping,
     },
     terrain::{Terrain, TileToTerrain},
-    utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z},
+    utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z, index_to_x_z_simd},
     Heights, TerrainSets, TerrainSettings,
 };
 
@@ -177,27 +177,27 @@ pub enum TexturingRuleEvaluator {
     },
 }
 impl TexturingRuleEvaluator {
-    pub fn eval(&self, height_at_position: f32, angle_at_position: f32) -> f32 {
+    pub fn eval_simd(&self, height_at_position: Vec4, angle_at_position: Vec4) -> Vec4 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
-                1.0 - ((height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
-                    .clamp(0.0, 1.0)
+                Vec4::ONE - ((Vec4::splat(*height) - height_at_position).max(Vec4::ZERO) / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
             }
             TexturingRuleEvaluator::Below { height, falloff } => {
-                1.0 - ((height_at_position - height).max(0.0) / falloff.max(f32::EPSILON))
-                    .clamp(0.0, 1.0)
+                Vec4::ONE - ((height_at_position - Vec4::splat(*height)).max(Vec4::ZERO) / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
             }
             TexturingRuleEvaluator::Between {
                 max_height,
                 min_height,
                 falloff,
             } => {
-                let strength_below = 1.0
-                    - ((min_height - height_at_position).max(0.0) / falloff.max(f32::EPSILON))
-                        .clamp(0.0, 1.0);
-                let strength_above = 1.0
-                    - ((height_at_position - max_height).max(0.0) / falloff.max(f32::EPSILON))
-                        .clamp(0.0, 1.0);
+                let strength_below = Vec4::ONE
+                    - ((Vec4::splat(*min_height) - height_at_position).max(Vec4::ZERO) / falloff.max(f32::EPSILON))
+                        .clamp(Vec4::ZERO, Vec4::ONE);
+                let strength_above = Vec4::ONE
+                    - ((height_at_position - Vec4::splat(*max_height)).max(Vec4::ZERO) / falloff.max(f32::EPSILON))
+                        .clamp(Vec4::ZERO, Vec4::ONE);
 
                 strength_below.min(strength_above)
             }
@@ -205,28 +205,28 @@ impl TexturingRuleEvaluator {
                 angle_radians,
                 falloff_radians,
             } => {
-                1.0 - ((angle_radians - angle_at_position).max(0.0)
+                Vec4::ONE - ((Vec4::splat(*angle_radians) - angle_at_position).max(Vec4::ZERO)
                     / falloff_radians.max(f32::EPSILON))
-                .clamp(0.0, 1.0)
+                .clamp(Vec4::ZERO, Vec4::ONE)
             }
             TexturingRuleEvaluator::AngleLessThan {
                 angle_radians,
                 falloff_radians,
             } => {
-                1.0 - ((angle_at_position - angle_radians).max(0.0)
+                Vec4::ONE - ((angle_at_position - Vec4::splat(*angle_radians)).max(Vec4::ZERO)
                     / falloff_radians.max(f32::EPSILON))
-                .clamp(0.0, 1.0)
+                .clamp(Vec4::ZERO, Vec4::ONE)
             },
             TexturingRuleEvaluator::AngleBetween { min_angle_radians, max_angle_radians, falloff_radians } => {
                 let strength_above = 
-                    1.0 - ((max_angle_radians - angle_at_position).max(0.0)
+                Vec4::ONE - ((Vec4::splat(*max_angle_radians) - angle_at_position).max(Vec4::ZERO)
                         / falloff_radians.max(f32::EPSILON))
-                    .clamp(0.0, 1.0);
+                    .clamp(Vec4::ZERO, Vec4::ONE);
                 
                 let strength_below = 
-                    1.0 - ((angle_at_position - min_angle_radians).max(0.0)
+                Vec4::ONE - ((angle_at_position - Vec4::splat(*min_angle_radians)).max(Vec4::ZERO)
                         / falloff_radians.max(f32::EPSILON))
-                    .clamp(0.0, 1.0);
+                    .clamp(Vec4::ZERO, Vec4::ONE);
 
                 strength_below.min(strength_above)
             }
@@ -517,6 +517,13 @@ fn update_terrain_texture_maps(
             if !texturing_rules.rules.is_empty() {
                 let _span = info_span!("Apply global texturing rules.").entered();
 
+                let normals = mesh
+                    .attribute(Mesh::ATTRIBUTE_NORMAL)
+                    .unwrap()
+                    .as_float3()
+                    .unwrap();
+
+
                 for rule in texturing_rules.rules.iter() {
                     let Some(texture_channel) = material.extension.get_texture_slot(
                         &rule.texture,
@@ -527,61 +534,109 @@ fn update_terrain_texture_maps(
                         info!("Hit max texture channels.");
                         return;
                     };
-                    let normals = mesh
-                        .attribute(Mesh::ATTRIBUTE_NORMAL)
-                        .unwrap()
-                        .as_float3()
-                        .unwrap();
+                    for (i, val) in texture.data.chunks_exact_mut(16).enumerate() {
+                        let true_i = (i * 4) as u32;
+                        let (x, z) = index_to_x_z_simd(UVec4::new(true_i, true_i + 1, true_i + 2, true_i + 3), resolution);
 
-                    for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                        let (x, z) = index_to_x_z(i, resolution as usize);
+                        let x_f = x.as_vec4() * vertex_scale;
+                        let z_f = z.as_vec4() * vertex_scale;
 
-                        let x_f = x as f32 * vertex_scale;
-                        let z_f = z as f32 * vertex_scale;
+                        let vertex_x = x_f.as_uvec4();
+                        let vertex_z = z_f.as_uvec4();
 
-                        let vertex_x = x_f as usize;
-                        let vertex_z = z_f as usize;
-
-                        let vertex_a =
-                            (vertex_z * terrain_settings.edge_points as usize) + vertex_x;
+                        let vertex_a = (vertex_z * terrain_settings.edge_points as u32) + vertex_x;
                         let vertex_b = vertex_a + 1;
-                        let vertex_c = vertex_a + terrain_settings.edge_points as usize;
-                        let vertex_d = vertex_a + terrain_settings.edge_points as usize + 1;
+                        let vertex_c = vertex_a + terrain_settings.edge_points as u32;
+                        let vertex_d = vertex_a + terrain_settings.edge_points as u32 + 1;
 
-                        let local_x = x_f - x_f.floor();
-                        let local_z = z_f - z_f.floor();
+                        let local_x = x_f.fract_gl();
+                        let local_z = z_f.fract_gl();
 
                         // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
 
                         // Skip the bounds checks.
                         let height_at_position = unsafe {
-                            get_height_at_position_in_quad(
-                                *heights.0.get_unchecked(vertex_a),
-                                *heights.0.get_unchecked(vertex_b),
-                                *heights.0.get_unchecked(vertex_c),
-                                *heights.0.get_unchecked(vertex_d),
-                                local_x,
-                                local_z,
+                            Vec4::new(
+                                get_height_at_position_in_quad(
+                                    *heights.0.get_unchecked(vertex_a.x as usize),
+                                    *heights.0.get_unchecked(vertex_b.x as usize),
+                                    *heights.0.get_unchecked(vertex_c.x as usize),
+                                    *heights.0.get_unchecked(vertex_d.x as usize),
+                                    local_x.x,
+                                    local_z.x,
+                                ),
+                                get_height_at_position_in_quad(
+                                    *heights.0.get_unchecked(vertex_a.y as usize),
+                                    *heights.0.get_unchecked(vertex_b.y as usize),
+                                    *heights.0.get_unchecked(vertex_c.y as usize),
+                                    *heights.0.get_unchecked(vertex_d.y as usize),
+                                    local_x.y,
+                                    local_z.y,
+                                ),
+                                get_height_at_position_in_quad(
+                                    *heights.0.get_unchecked(vertex_a.z as usize),
+                                    *heights.0.get_unchecked(vertex_b.z as usize),
+                                    *heights.0.get_unchecked(vertex_c.z as usize),
+                                    *heights.0.get_unchecked(vertex_d.z as usize),
+                                    local_x.z,
+                                    local_z.z,
+                                ),
+                                get_height_at_position_in_quad(
+                                    *heights.0.get_unchecked(vertex_a.w as usize),
+                                    *heights.0.get_unchecked(vertex_b.w as usize),
+                                    *heights.0.get_unchecked(vertex_c.w as usize),
+                                    *heights.0.get_unchecked(vertex_d.w as usize),
+                                    local_x.w,
+                                    local_z.w,
+                                )
                             )
                         };
 
                         // Skip the bounds checks.
-                        let normal_at_position = unsafe {
-                            get_normal_at_position_in_quad(
-                                (*normals.get_unchecked(vertex_a)).into(),
-                                (*normals.get_unchecked(vertex_b)).into(),
-                                (*normals.get_unchecked(vertex_c)).into(),
-                                (*normals.get_unchecked(vertex_d)).into(),
-                                local_x,
-                                local_z,
+                        let normal_angle = unsafe {
+                            Vec4::new(
+                                get_normal_at_position_in_quad(
+                                    (*normals.get_unchecked(vertex_a.x as usize)).into(),
+                                    (*normals.get_unchecked(vertex_b.x as usize)).into(),
+                                    (*normals.get_unchecked(vertex_c.x as usize)).into(),
+                                    (*normals.get_unchecked(vertex_d.x as usize)).into(),
+                                    local_x.x,
+                                    local_z.x,
+                                ).normalize().dot(Vec3::Y).acos(),
+                                get_normal_at_position_in_quad(
+                                    (*normals.get_unchecked(vertex_a.y as usize)).into(),
+                                    (*normals.get_unchecked(vertex_b.y as usize)).into(),
+                                    (*normals.get_unchecked(vertex_c.y as usize)).into(),
+                                    (*normals.get_unchecked(vertex_d.y as usize)).into(),
+                                    local_x.y,
+                                    local_z.y,
+                                ).normalize().dot(Vec3::Y).acos(),
+                                get_normal_at_position_in_quad(
+                                    (*normals.get_unchecked(vertex_a.z as usize)).into(),
+                                    (*normals.get_unchecked(vertex_b.z as usize)).into(),
+                                    (*normals.get_unchecked(vertex_c.z as usize)).into(),
+                                    (*normals.get_unchecked(vertex_d.z as usize)).into(),
+                                    local_x.z,
+                                    local_z.z,
+                                ).normalize().dot(Vec3::Y).acos(),
+                                get_normal_at_position_in_quad(
+                                    (*normals.get_unchecked(vertex_a.w as usize)).into(),
+                                    (*normals.get_unchecked(vertex_b.w as usize)).into(),
+                                    (*normals.get_unchecked(vertex_c.w as usize)).into(),
+                                    (*normals.get_unchecked(vertex_d.w as usize)).into(),
+                                    local_x.w,
+                                    local_z.w,
+                                ).normalize().dot(Vec3::Y).acos(),
                             )
                         };
-                        let normal_angle = normal_at_position.normalize().dot(Vec3::Y).acos();
 
-                        let strength = rule.evaluator.eval(height_at_position, normal_angle);
+                        let strength = rule.evaluator.eval_simd(height_at_position, normal_angle);
 
                         // Apply texture.
-                        apply_texture(val, texture_channel, strength);
+                        apply_texture(&mut val[0..4], texture_channel, strength.x);
+                        apply_texture(&mut val[4..8], texture_channel, strength.y);
+                        apply_texture(&mut val[8..12], texture_channel, strength.z);
+                        apply_texture(&mut val[12..16], texture_channel, strength.w);
                     }
                 }
             }

@@ -1,4 +1,4 @@
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec4};
 use bevy_world_seed::{
     material::{apply_texture, TexturingRuleEvaluator},
     utils::{distance_squared_to_line_segment, get_height_at_position_in_quad},
@@ -32,7 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 height: 10.0,
                 falloff: 1.0,
             }
-            .eval(9.5, 0.0)
+            .eval_simd(Vec4::splat(9.5), Vec4::splat(0.0))
         }))
     });
 }
