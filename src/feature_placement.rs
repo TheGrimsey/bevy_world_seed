@@ -398,13 +398,13 @@ fn update_features_on_tile_built(
         let mut filtered_feature_placements =
             filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
 
-        for (i, mut feature_placements) in filtered_feature_placements
+        for (group_i, mut feature_placements) in filtered_feature_placements
             .drain(..)
             .enumerate()
             .filter(|(_, placements)| !placements.is_empty())
         {
             let _span = info_span!("Spawn feature group").entered();
-            let feature_group = &terrain_features.feature_groups[i];
+            let feature_group = &terrain_features.feature_groups[group_i];
 
             // Sort placements so that placements are grouped by the feature they are for.
             // This allows us to send slices of the same feature's placements to user code.
@@ -418,7 +418,7 @@ fn update_features_on_tile_built(
                 if feature_i != feature_placements[i].feature {
                     let feature = &feature_group.features[feature_i as usize];
                     let mut spawned_feature = SpawnedFeature {
-                        group: i as u32,
+                        group: group_i as u32,
                         feature: feature_i,
                         instances: Vec::with_capacity(i - start_index),
                     };
@@ -448,9 +448,9 @@ fn update_features_on_tile_built(
             let feature_i = feature_placements[start_index].feature;
             let feature = &feature_group.features[feature_i as usize];
             let mut spawned_feature = SpawnedFeature {
-                group: i as u32,
+                group: group_i as u32,
                 feature: feature_i,
-                instances: Vec::with_capacity(i - start_index),
+                instances: Vec::with_capacity(feature_placements.len() - start_index),
             };
 
             {

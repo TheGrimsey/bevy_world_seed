@@ -184,16 +184,39 @@ fn insert_rules(
         },
     ]);
 
-    let mesh_handle = meshes.add(Cuboid::from_length(1.0));
-    let material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
+    let cube_mesh_handle = meshes.add(Cuboid::from_length(1.0));
+    let red_cube_mesh_handle = cube_mesh_handle.clone();
+    let blue_material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
+    
+    let red_material_handle = material.add(StandardMaterial::from_color(Srgba::RED));
 
-    let spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(
+    let blue_spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(
         move |commands, terrain_entity, placements, spawned_entities| {
             spawned_entities.extend(placements.iter().map(|placement| {
                 commands
                     .spawn(PbrBundle {
-                        mesh: mesh_handle.clone(),
-                        material: material_handle.clone(),
+                        mesh: cube_mesh_handle.clone(),
+                        material: blue_material_handle.clone(),
+                        transform: Transform {
+                            translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
+                            rotation: Quat::from_rotation_y(placement.yaw_rotation_radians),
+                            scale: placement.scale,
+                        },
+                        ..default()
+                    })
+                    .set_parent(terrain_entity)
+                    .id()
+            }));
+        },
+    ));
+
+    let red_spawn_strategy = FeatureSpawnStrategy::Custom(Box::new(
+        move |commands, terrain_entity, placements, spawned_entities| {
+            spawned_entities.extend(placements.iter().map(|placement| {
+                commands
+                    .spawn(PbrBundle {
+                        mesh: red_cube_mesh_handle.clone(),
+                        material: red_material_handle.clone(),
                         transform: Transform {
                             translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
                             rotation: Quat::from_rotation_y(placement.yaw_rotation_radians),
@@ -220,7 +243,15 @@ fn insert_rules(
             }],
             randomize_yaw_rotation: true,
             scale_randomization: FeatureScaleRandomization::Uniform { min: 0.25, max: 2.5 },
-            spawn_strategy,
+            spawn_strategy: blue_spawn_strategy,
+            despawn_strategy: FeatureDespawnStrategy::Default,
+        },
+        Feature {
+            collision_radius: 1.0,
+            placement_conditions: vec![FeaturePlacementCondition::HeightBetween { min: 10.0, max: 130.0 }],
+            randomize_yaw_rotation: true,
+            scale_randomization: FeatureScaleRandomization::Uniform { min: 0.25, max: 5.0 },
+            spawn_strategy: red_spawn_strategy,
             despawn_strategy: FeatureDespawnStrategy::Default,
         }],
     }]);
