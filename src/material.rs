@@ -177,6 +177,24 @@ pub enum TexturingRuleEvaluator {
     },
 }
 impl TexturingRuleEvaluator {
+    pub fn can_apply_to_tile(&self, min: f32, max: f32) -> bool {
+        match self {
+            TexturingRuleEvaluator::Above { height, falloff } => {
+                max >= (*height - *falloff)
+            },
+            TexturingRuleEvaluator::Below { height, falloff } => {
+                min <= (*height + *falloff)
+            },
+            TexturingRuleEvaluator::Between { max_height, min_height, falloff } => {
+                max >= (*min_height - *falloff) && min <= (*max_height + falloff)
+            },
+            // TODO: Early filter by angles. We can estimate the worst case angle by taking the heights & max distance between two connected vertices.
+            TexturingRuleEvaluator::AngleGreaterThan { .. } => true,
+            TexturingRuleEvaluator::AngleLessThan { .. } => true,
+            TexturingRuleEvaluator::AngleBetween { .. } => true,
+        }
+    }
+
     pub fn eval_simd(&self, height_at_position: Vec4, angle_at_position: Vec4) -> Vec4 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
@@ -457,6 +475,7 @@ fn update_terrain_texture_maps(
         &Handle<TerrainMaterialExtended>,
         &Handle<Mesh>,
         &Terrain,
+        &Aabb,
     )>,
     texture_settings: Res<TerrainTexturingSettings>,
     terrain_settings: Res<TerrainSettings>,
@@ -497,7 +516,7 @@ fn update_terrain_texture_maps(
                 .filter_map(|tile| tile_to_terrain.0.get(&tile))
                 .flatten(),
         )
-        .for_each(|(heights, material, mesh, terrain_coordinate)| {
+        .for_each(|(heights, material, mesh, terrain_coordinate, aabb)| {
             let Some(material) = materials.get_mut(material) else {
                 return;
             };
@@ -523,8 +542,14 @@ fn update_terrain_texture_maps(
                     .as_float3()
                     .unwrap();
 
+                    let min = aabb.center.y - aabb.half_extents.y;
+                    let max = aabb.center.y + aabb.half_extents.y;
 
                 for rule in texturing_rules.rules.iter() {
+                    if !rule.evaluator.can_apply_to_tile(min, max) {
+                        continue;
+                    }
+
                     let Some(texture_channel) = material.extension.get_texture_slot(
                         &rule.texture,
                         &rule.normal_texture,
