@@ -49,12 +49,14 @@ fn main() {
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
+            data: vec![],
             splines: vec![],
             layers: vec![FilteredTerrainNoiseDetailLayer {
                 layer: TerrainNoiseDetailLayer {
                     amplitude: 4.0,
                     frequency: 1.0 / 30.0,
                     seed: 2,
+                    domain_warp: vec![]
                 },
                 filter: None,
             }],

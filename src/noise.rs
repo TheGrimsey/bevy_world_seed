@@ -63,6 +63,8 @@ pub struct TerrainNoiseSplineLayer {
     pub frequency: f32,
     /// Seed for the noise function.
     pub seed: u32,
+    /// Applies domain warping to the noise layer.
+    pub domain_warp: Vec<DomainWarping>
 }
 impl TerrainNoiseSplineLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude curve.
@@ -73,6 +75,8 @@ impl TerrainNoiseSplineLayer {
     /// The result is normalized.
     #[inline]
     pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp(x, z, noise));
+
         (noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) / 2.0 + 0.5) as f32
     }
 
@@ -98,6 +102,8 @@ impl TerrainNoiseSplineLayer {
     /// The result is normalized.
     #[inline]
     fn sample_simd_raw(&self, noise: &Simplex, x: Vec4, z: Vec4) -> Vec4 {
+        let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp_simd(x, z, noise));
+
         // Step 1: Get the noise values for all 4 positions (x, z)
         let noise_values = Vec4::new(
             noise.get([(x.x * self.frequency) as f64, (z.x * self.frequency) as f64]) as f32,
@@ -135,6 +141,50 @@ impl TerrainNoiseSplineLayer {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Clone, PartialEq, Default)]
+#[reflect(Default)]
+pub struct DomainWarping {
+    pub amplitude: f32,
+    pub frequency: f32,
+    pub z_offset: f32
+}
+impl DomainWarping {
+    pub fn warp(&self, x: f32, z: f32, noise: &Simplex) -> (f32, f32) {
+        (
+            x + self.amplitude * noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32,
+            z + self.amplitude * noise.get([(x * self.frequency + self.z_offset) as f64, (z * self.frequency + self.z_offset) as f64]) as f32,
+        )
+    }
+
+    pub fn warp_simd(&self, x: Vec4, z: Vec4, noise: &Simplex) -> (Vec4, Vec4) {
+        let noise_x = x * self.frequency;
+        let noise_z = z * self.frequency;
+        
+        let offset_x = Vec4::new(
+            noise.get([noise_x.x as f64, noise_z.x as f64]) as f32,
+            noise.get([noise_x.y as f64, noise_z.y as f64]) as f32,
+            noise.get([noise_x.z as f64, noise_z.z as f64]) as f32,
+            noise.get([noise_x.w as f64, noise_z.w as f64]) as f32
+        );
+
+        let noise_x = noise_x + self.z_offset;
+        let noise_z = noise_z + self.z_offset;
+
+        let offset_z = Vec4::new(
+            noise.get([noise_x.x as f64, noise_z.x as f64]) as f32,
+            noise.get([noise_x.y as f64, noise_z.y as f64]) as f32,
+            noise.get([noise_x.z as f64, noise_z.z as f64]) as f32,
+            noise.get([noise_x.w as f64, noise_z.w as f64]) as f32
+        );
+
+        (
+            x + self.amplitude * offset_x,
+            z + self.amplitude * offset_z,
+        )
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Clone, PartialEq)]
 #[reflect(Default)]
 pub struct TerrainNoiseDetailLayer {
@@ -148,6 +198,8 @@ pub struct TerrainNoiseDetailLayer {
     pub frequency: f32,
     /// Seed for the noise function.
     pub seed: u32,
+    /// Applies domain warping to the noise layer.
+    pub domain_warp: Vec<DomainWarping>
 }
 impl TerrainNoiseDetailLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude.
@@ -158,6 +210,8 @@ impl TerrainNoiseDetailLayer {
     /// The result is normalized.
     #[inline]
     pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+        let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp(x, z, noise));
+
         (noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) / 2.0 + 0.5) as f32
     }
 
@@ -173,6 +227,8 @@ impl TerrainNoiseDetailLayer {
     /// The result is normalized.
     #[inline]
     fn sample_simd_raw(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
+        let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp_simd(x, z, noise));
+
         let x = x * self.frequency;
         let z = z * self.frequency;
 
@@ -200,6 +256,7 @@ impl Default for TerrainNoiseDetailLayer {
             amplitude: 1.0,
             frequency: 1.0,
             seed: 1,
+            domain_warp: vec![]
         }
     }
 }
@@ -220,6 +277,10 @@ pub struct FilteredTerrainNoiseDetailLayer {
 pub enum FilterComparingTo {
     #[default]
     ToSelf,
+    /// Sample from a data noise.
+    Data {
+        index: u32
+    },
     Spline {
         index: u32,
     },
@@ -322,6 +383,11 @@ impl Default for NoiseFilterCondition {
 #[derive(Resource, Reflect, Clone, Default)]
 #[reflect(Resource)]
 pub struct TerrainNoiseSettings {
+    /// Data noise.
+    /// 
+    /// Not applied to the world but can be used to for filters.
+    pub data: Vec<TerrainNoiseDetailLayer>,
+
     pub splines: Vec<TerrainNoiseSplineLayer>,
 
     pub layers: Vec<FilteredTerrainNoiseDetailLayer>,
@@ -356,6 +422,7 @@ pub(super) fn apply_noise_simd(
     terrain_translation: Vec2,
     scale: f32,
     noise_cache: &NoiseCache,
+    noise_data_index_cache: &[u32],
     noise_spline_index_cache: &[u32],
     noise_detail_index_cache: &[u32],
     lookup_curves: &Assets<LookupCurve>,
@@ -403,6 +470,19 @@ pub(super) fn apply_noise_simd(
                     // If there's a filter we need to sample the noise layer we compare to.
                     let sampled_values = match &filter.compare_to {
                         FilterComparingTo::ToSelf => layer_values / layer.layer.amplitude,
+                        FilterComparingTo::Data { index } => terrain_noise_layers
+                            .data
+                            .get(*index as usize)
+                            .map(|layer| {
+                                layer.sample_simd_raw(
+                                    x_translated,
+                                    z_translated,
+                                    noise_cache.get_by_index(
+                                        noise_data_index_cache[*index as usize] as usize,
+                                    ),
+                                )
+                            })
+                            .unwrap_or(Vec4::ZERO),
                         FilterComparingTo::Spline { index } => terrain_noise_layers
                             .splines
                             .get(*index as usize)
@@ -474,6 +554,19 @@ pub(super) fn apply_noise_simd(
                 if let Some(filter) = &layer.filter {
                     let sampled_value = match &filter.compare_to {
                         FilterComparingTo::ToSelf => layer_value,
+                        FilterComparingTo::Data { index } => terrain_noise_layers
+                        .data
+                        .get(*index as usize)
+                        .map(|layer| {
+                            layer.sample_raw(
+                                vertex_position.x,
+                                vertex_position.y,
+                                noise_cache.get_by_index(
+                                    noise_data_index_cache[*index as usize] as usize,
+                                ),
+                            )
+                        })
+                        .unwrap_or(0.0),
                         FilterComparingTo::Spline { index } => terrain_noise_layers
                             .splines
                             .get(*index as usize)

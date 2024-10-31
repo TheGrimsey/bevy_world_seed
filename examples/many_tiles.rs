@@ -6,7 +6,7 @@ use bevy::{
     color::{Color, Srgba},
     core::Name,
     diagnostic::FrameTimeDiagnosticsPlugin,
-    math::{Quat, Vec3, Vec3Swizzles},
+    math::{Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
         default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res,
@@ -34,9 +34,7 @@ use bevy_world_seed::{
     },
     meshing::TerrainMeshRebuildQueue,
     noise::{
-        FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter,
-        NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings,
-        TerrainNoiseSplineLayer,
+        DomainWarping, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
     },
     terrain::{Terrain, TileToTerrain},
     RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
@@ -56,6 +54,7 @@ fn main() {
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
+            data: vec![],
             splines: vec![],
             layers: vec![
                 FilteredTerrainNoiseDetailLayer {
@@ -63,6 +62,21 @@ fn main() {
                         amplitude: 16.0,
                         frequency: 0.005,
                         seed: 3,
+                        domain_warp: vec![DomainWarping {
+                            amplitude: 25.0,
+                            frequency: 0.01,
+                            z_offset: 100.0
+                        },
+                        DomainWarping {
+                            amplitude: 50.0,
+                            frequency: 0.006,
+                            z_offset: 50.0
+                        },
+                        DomainWarping {
+                            amplitude: 60.0,
+                            frequency: 0.004,
+                            z_offset: 10.0
+                        }]
                     },
                     filter: Some(NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.4),
@@ -76,6 +90,7 @@ fn main() {
                         amplitude: 8.0,
                         frequency: 0.01,
                         seed: 1,
+                        domain_warp: vec![]
                     },
                     filter: None,
                 },
@@ -84,6 +99,7 @@ fn main() {
                         amplitude: 4.0,
                         frequency: 0.02,
                         seed: 2,
+                        domain_warp: vec![]
                     },
                     filter: None,
                 },
@@ -92,6 +108,7 @@ fn main() {
                         amplitude: 2.0,
                         frequency: 0.04,
                         seed: 3,
+                        domain_warp: vec![]
                     },
                     filter: None,
                 },
@@ -136,11 +153,13 @@ fn insert_rules(
             amplitude_curve: continentallness.clone(),
             frequency: 0.001,
             seed: 5,
+            domain_warp: vec![]
         },
         TerrainNoiseSplineLayer {
             amplitude_curve: peaks_and_valleys.clone(),
             frequency: 0.005,
             seed: 6,
+            domain_warp: vec![]
         },
     ]);
 
@@ -199,7 +218,7 @@ fn insert_rules(
                         material: blue_material_handle.clone(),
                         transform: Transform {
                             translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
-                            rotation: Quat::from_rotation_y(placement.yaw_rotation_radians),
+                            rotation: placement.rotation,
                             scale: placement.scale,
                         },
                         ..default()
@@ -219,7 +238,7 @@ fn insert_rules(
                         material: red_material_handle.clone(),
                         transform: Transform {
                             translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
-                            rotation: Quat::from_rotation_y(placement.yaw_rotation_radians),
+                            rotation: placement.rotation,
                             scale: placement.scale,
                         },
                         ..default()
@@ -236,21 +255,28 @@ fn insert_rules(
         belongs_to_layers: 1,
         removes_layers: 1,
         features: vec![Feature {
+            weight: 1.0,
             collision_radius: 1.0,
             placement_conditions: vec![FeaturePlacementCondition::SlopeBetween {
                 min_angle_radians: 0.0,
                 max_angle_radians: 45.0_f32.to_radians(),
             }],
             randomize_yaw_rotation: true,
-            scale_randomization: FeatureScaleRandomization::Uniform { min: 0.25, max: 2.5 },
+            align_to_terrain_normal: true,
+            scale_randomization: FeatureScaleRandomization::Uniform { min: 1.0, max: 2.0 },
             spawn_strategy: blue_spawn_strategy,
             despawn_strategy: FeatureDespawnStrategy::Default,
         },
         Feature {
+            weight: 0.1,
             collision_radius: 1.0,
-            placement_conditions: vec![FeaturePlacementCondition::HeightBetween { min: 10.0, max: 130.0 }],
+            placement_conditions: vec![FeaturePlacementCondition::SlopeBetween {
+                min_angle_radians: 0.0,
+                max_angle_radians: 45.0_f32.to_radians(),
+            }],
             randomize_yaw_rotation: true,
-            scale_randomization: FeatureScaleRandomization::Uniform { min: 0.25, max: 5.0 },
+            align_to_terrain_normal: false,
+            scale_randomization: FeatureScaleRandomization::Uniform { min: 1.0, max: 2.0 },
             spawn_strategy: red_spawn_strategy,
             despawn_strategy: FeatureDespawnStrategy::Default,
         }],
@@ -271,7 +297,7 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
         ..default()
     });
 
-    let terrain_range = 1;
+    let terrain_range = 5;
 
     for x in -terrain_range..terrain_range {
         for z in -terrain_range..terrain_range {
@@ -381,6 +407,13 @@ impl EditorWindow for NoiseDebugWindow {
                     );
 
                     ui.label(format!("- {i}: {noise:.5} ({noise_raw:.2})"));
+                }
+
+                ui.heading("Data");
+                for (i, data_layer) in noise_settings.data.iter().enumerate() {
+                    let noise = data_layer.sample_raw(translation.x, translation.z, noise_cache.get(data_layer.seed));
+                    
+                    ui.label(format!("- {i}: {noise:.3}"));
                 }
             }
         });

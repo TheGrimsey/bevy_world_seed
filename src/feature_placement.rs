@@ -1,9 +1,10 @@
+use core::f32;
 use std::f32::consts::TAU;
 
 use bevy::{
     app::{App, Plugin, PostUpdate},
     log::info_span,
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
+    math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles},
     prelude::{
         on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs,
         Query, ReflectComponent, Res, Resource,
@@ -79,10 +80,13 @@ pub enum FeatureScaleRandomization {
 }
 
 pub struct Feature {
+    pub weight: f32,
+
     pub collision_radius: f32,
     pub placement_conditions: Vec<FeaturePlacementCondition>,
 
     pub randomize_yaw_rotation: bool,
+    pub align_to_terrain_normal: bool,
     pub scale_randomization: FeatureScaleRandomization,
 
     pub spawn_strategy: FeatureSpawnStrategy,
@@ -92,6 +96,8 @@ impl Feature {
     pub fn check_conditions(
         &self,
         placement_position: Vec3,
+        // If not provided, generated in condition.
+        terrain_normal: Option<Vec3>,
         heights: &Heights,
         terrain_settings: &TerrainSettings,
     ) -> bool {
@@ -105,11 +111,11 @@ impl Feature {
                     min_angle_radians,
                     max_angle_radians,
                 } => {
-                    let normal = get_flat_normal_at_position_in_tile(
+                    let normal = terrain_normal.unwrap_or_else(|| get_flat_normal_at_position_in_tile(
                         placement_position.xz(),
                         heights,
                         terrain_settings,
-                    );
+                    ));
                     let angle = normal.dot(Vec3::Y).acos();
 
                     *min_angle_radians <= angle && angle <= *max_angle_radians
@@ -135,43 +141,78 @@ impl FeatureGroup {
         terrain_settings: &TerrainSettings,
     ) -> Vec<FeaturePlacement> {
         let tile_size = terrain_settings.tile_size();
+        let total_weight = self.features.iter().fold(0.0, |acc, feature| acc + feature.weight);
 
         (0..self.placements_per_tile)
             .filter_map(|index| {
-                let feature_index = rng.u32(0..self.features.len() as u32);
+                let mut weight_i = rng.f32() * total_weight;
+
+                let (feature_index, feature) = self.features.iter().enumerate().find(|(_, entry)| {
+                    weight_i -= entry.weight;
+
+                    weight_i <= 0.0
+                }).unwrap();
+
                 let position = Vec2::new(rng.f32() * tile_size, rng.f32() * tile_size);
                 let height = get_height_at_position_in_tile(position, heights, terrain_settings);
 
                 let position = Vec3::new(position.x, height, position.y);
-
-                let feature = &self.features[feature_index as usize]; 
                 
+                let scale = match &feature.scale_randomization {
+                    FeatureScaleRandomization::None => Vec3::ONE,
+                    FeatureScaleRandomization::Uniform { min, max } => {
+                        let x = rng.f32();
+                        
+                        Vec3::splat(*min + x * (*max - *min))
+                    } ,
+                    FeatureScaleRandomization::Independent { min, max } => {
+                        let rng = Vec3::new(
+                            rng.f32(),
+                            rng.f32(),
+                            rng.f32(),
+                        );
+
+                        *min + rng * (*max - *min)
+                    },
+                };
+
+                let (terrain_normal, mut rotation) = if feature.align_to_terrain_normal {
+                    let normal = get_flat_normal_at_position_in_tile(
+                        position.xz(),
+                        heights,
+                        terrain_settings,
+                    );
+
+                    // Calculate the angle between Y axis and the normal
+                    let dot = Vec3::Y.dot(normal);
+                    let angle = dot.acos();
+
+                    // Calculate the rotation axis as the cross product of Y axis and the normal
+                    let axis = Vec3::Y.cross(normal).normalize();
+
+                    (Some(normal), Quat::from_axis_angle(axis, angle))
+                } else {
+                    (None, Quat::IDENTITY)
+                };
+
+                if feature.randomize_yaw_rotation {
+                    let yaw = rng.f32() * TAU;
+
+                    rotation *= Quat::from_rotation_y(yaw);
+                }
+
                 if feature.check_conditions(
                     position,
+                    terrain_normal,
                     heights,
                     terrain_settings,
                 ) {
-                    let scale = match &feature.scale_randomization {
-                        FeatureScaleRandomization::None => Vec3::ONE,
-                        FeatureScaleRandomization::Uniform { min, max } => Vec3::splat(*min + rng.f32() * (*max - *min)),
-                        FeatureScaleRandomization::Independent { min, max } => {
-                            let rng = Vec3::new(rng.f32(), rng.f32(), rng.f32());
-
-                            *min + rng * (*max - *min)
-                        },
-                    };
-                    let yaw_rotation_radians = if feature.randomize_yaw_rotation {
-                        rng.f32() * TAU
-                    } else {
-                        0.0
-                    };
-
                     Some(FeaturePlacement {
                         index,
-                        feature: feature_index,
+                        feature: feature_index as u32,
                         position,
                         scale,
-                        yaw_rotation_radians
+                        rotation
                     })
                 } else {
                     None
@@ -287,7 +328,7 @@ pub struct FeaturePlacement {
     pub feature: u32,
     pub position: Vec3,
     pub scale: Vec3,
-    pub yaw_rotation_radians: f32
+    pub rotation: Quat
 }
 
 fn cantor_hash(a: u64, b: u64) -> u64 {

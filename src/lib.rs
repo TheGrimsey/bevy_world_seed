@@ -246,6 +246,7 @@ fn update_terrain_heights(
     mut event_reader: EventReader<RebuildTile>,
     mut tile_rebuilt_events: EventWriter<TileHeightsRebuilt>,
     lookup_curves: Res<Assets<LookupCurve>>,
+    mut noise_data_index_cache: Local<Vec<u32>>,
     mut noise_spline_index_cache: Local<Vec<u32>>,
     mut noise_detail_index_cache: Local<Vec<u32>>,
 ) {
@@ -255,6 +256,14 @@ fn update_terrain_heights(
         .as_ref()
         .filter(|noise_layers| noise_layers.is_changed())
     {
+        noise_data_index_cache.clear();
+        noise_data_index_cache.extend(
+            terrain_noise_layers
+                .data
+                .iter()
+                .map(|layer| noise_cache.get_simplex_index(layer.seed) as u32),
+        );
+
         noise_spline_index_cache.clear();
         noise_spline_index_cache.extend(
             terrain_noise_layers
@@ -323,6 +332,7 @@ fn update_terrain_heights(
                     terrain_translation,
                     scale,
                     &noise_cache,
+                    &noise_data_index_cache,
                     &noise_spline_index_cache,
                     &noise_detail_index_cache,
                     &lookup_curves,

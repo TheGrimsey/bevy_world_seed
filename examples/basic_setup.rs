@@ -39,12 +39,14 @@ fn main() {
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
+            data: vec![],
             splines: vec![],
             layers: vec![FilteredTerrainNoiseDetailLayer {
                 layer: TerrainNoiseDetailLayer {
                     amplitude: 6.0,
                     frequency: 1.0 / 30.0,
                     seed: 1,
+                    domain_warp: vec![]
                 },
                 filter: None,
             }],
@@ -178,6 +180,7 @@ fn spawn_terrain(
                 amplitude: 2.0,
                 frequency: 1.0,
                 seed: 5,
+                domain_warp: vec![]
             },
         },
         ModifierHeightOperation::Set,
@@ -232,6 +235,7 @@ fn spawn_terrain(
                 amplitude: 2.0,
                 frequency: 0.1,
                 seed: 5,
+                domain_warp: vec![]
             },
         },
         TextureModifierOperation {
