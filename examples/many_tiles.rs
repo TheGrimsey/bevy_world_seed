@@ -34,7 +34,7 @@ use bevy_world_seed::{
     },
     meshing::TerrainMeshRebuildQueue,
     noise::{
-        DomainWarping, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
+        DomainWarping, FilterCombinator, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
     },
     terrain::{Terrain, TileToTerrain},
     RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
@@ -78,12 +78,13 @@ fn main() {
                             z_offset: 10.0
                         }]
                     },
-                    filter: Some(NoiseFilter {
+                    filter: vec![NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.4),
                         falloff: 0.1,
                         falloff_easing_function: EasingFunction::CubicInOut,
                         compare_to: FilterComparingTo::Spline { index: 0 },
-                    }),
+                    }],
+                    filter_combinator: FilterCombinator::Max
                 },
                 FilteredTerrainNoiseDetailLayer {
                     layer: TerrainNoiseDetailLayer {
@@ -92,7 +93,8 @@ fn main() {
                         seed: 1,
                         domain_warp: vec![]
                     },
-                    filter: None,
+                    filter: vec![],
+                    filter_combinator: FilterCombinator::Max
                 },
                 FilteredTerrainNoiseDetailLayer {
                     layer: TerrainNoiseDetailLayer {
@@ -101,7 +103,8 @@ fn main() {
                         seed: 2,
                         domain_warp: vec![]
                     },
-                    filter: None,
+                    filter: vec![],
+                    filter_combinator: FilterCombinator::Max
                 },
                 FilteredTerrainNoiseDetailLayer {
                     layer: TerrainNoiseDetailLayer {
@@ -110,7 +113,8 @@ fn main() {
                         seed: 3,
                         domain_warp: vec![]
                     },
-                    filter: None,
+                    filter: vec![],
+                    filter_combinator: FilterCombinator::Max
                 },
             ],
         }),

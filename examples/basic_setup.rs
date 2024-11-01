@@ -26,7 +26,7 @@ use bevy_world_seed::{
         ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle,
         TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     },
-    noise::{FilteredTerrainNoiseDetailLayer, TerrainNoiseDetailLayer, TerrainNoiseSettings},
+    noise::{FilterCombinator, FilteredTerrainNoiseDetailLayer, TerrainNoiseDetailLayer, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
     terrain::Terrain,
     TerrainPlugin, TerrainSettings,
@@ -48,7 +48,8 @@ fn main() {
                     seed: 1,
                     domain_warp: vec![]
                 },
-                filter: None,
+                filter: vec![],
+                filter_combinator: FilterCombinator::Max
             }],
         }),
         terrain_settings: TerrainSettings {

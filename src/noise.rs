@@ -268,7 +268,8 @@ pub struct FilteredTerrainNoiseDetailLayer {
     pub layer: TerrainNoiseDetailLayer,
 
     /// Filter this detail layer to only apply during certain conditions.
-    pub filter: Option<NoiseFilter>,
+    pub filter: Vec<NoiseFilter>,
+    pub filter_combinator: FilterCombinator
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -299,61 +300,57 @@ pub struct NoiseFilter {
     pub compare_to: FilterComparingTo,
 }
 impl NoiseFilter {
-    fn apply_filter(
+    fn get_filter(
         &self,
-        // Noise value
-        original: f32,
-        comparing_to_value: f32,
+        noise_value: f32,
     ) -> f32 {
         let strength = match &self.condition {
             NoiseFilterCondition::Above(threshold) => {
-                1.0 - ((threshold - comparing_to_value).max(0.0) / self.falloff.max(f32::EPSILON))
+                1.0 - ((threshold - noise_value).max(0.0) / self.falloff.max(f32::EPSILON))
                     .clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Below(threshold) => {
-                1.0 - ((comparing_to_value - threshold).max(0.0) / self.falloff.max(f32::EPSILON))
+                1.0 - ((noise_value - threshold).max(0.0) / self.falloff.max(f32::EPSILON))
                     .clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Between { min, max } => {
                 let strength_below = 1.0
-                    - ((min - comparing_to_value).max(0.0) / self.falloff.max(f32::EPSILON))
+                    - ((min - noise_value).max(0.0) / self.falloff.max(f32::EPSILON))
                         .clamp(0.0, 1.0);
                 let strength_above = 1.0
-                    - ((comparing_to_value - max).max(0.0) / self.falloff.max(f32::EPSILON))
+                    - ((noise_value - max).max(0.0) / self.falloff.max(f32::EPSILON))
                         .clamp(0.0, 1.0);
 
                 strength_below.min(strength_above)
             }
         };
 
-        original * self.falloff_easing_function.ease(strength)
+        self.falloff_easing_function.ease(strength)
     }
-    fn apply_filter_simd(
+    fn get_filter_simd(
         &self,
-        // Noise value
-        original: Vec4,
-        comparing_to_value: Vec4,
+        noise_value: Vec4,
     ) -> Vec4 {
         let strength = match &self.condition {
             NoiseFilterCondition::Above(threshold) => {
                 Vec4::ONE
-                    - ((Vec4::splat(*threshold) - comparing_to_value).max(Vec4::ZERO)
+                    - ((Vec4::splat(*threshold) - noise_value).max(Vec4::ZERO)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE)
             }
             NoiseFilterCondition::Below(threshold) => {
                 Vec4::ONE
-                    - ((comparing_to_value - Vec4::splat(*threshold)).max(Vec4::ZERO)
+                    - ((noise_value - Vec4::splat(*threshold)).max(Vec4::ZERO)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE)
             }
             NoiseFilterCondition::Between { min, max } => {
                 let strength_below = 1.0
-                    - ((Vec4::splat(*min) - comparing_to_value).max(Vec4::ZERO)
+                    - ((Vec4::splat(*min) - noise_value).max(Vec4::ZERO)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE);
                 let strength_above = 1.0
-                    - ((comparing_to_value - Vec4::splat(*max)).max(Vec4::ZERO)
+                    - ((noise_value - Vec4::splat(*max)).max(Vec4::ZERO)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE);
 
@@ -361,8 +358,21 @@ impl NoiseFilter {
             }
         };
 
-        original * self.falloff_easing_function.ease_simd(strength)
+        self.falloff_easing_function.ease_simd(strength)
     }
+}
+
+
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Default, Clone, PartialEq)]
+#[reflect(Default)]
+pub enum FilterCombinator {
+    #[default]
+    Max,
+    Min,
+    Multiply,
+    Sum,
+    SumUncapped
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -466,9 +476,8 @@ pub(super) fn apply_noise_simd(
                 let noise = noise_cache.get_by_index(noise_detail_index_cache[j] as usize);
                 let mut layer_values = layer.layer.sample_simd(x_translated, z_translated, noise);
 
-                if let Some(filter) = &layer.filter {
-                    // If there's a filter we need to sample the noise layer we compare to.
-                    let sampled_values = match &filter.compare_to {
+                if let Some(initial_filter) = layer.filter.first() {
+                    let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
                         FilterComparingTo::ToSelf => layer_values / layer.layer.amplitude,
                         FilterComparingTo::Data { index } => terrain_noise_layers
                             .data
@@ -510,8 +519,21 @@ pub(super) fn apply_noise_simd(
                             })
                             .unwrap_or(Vec4::ZERO),
                     };
+                    let initial_filter_strength = initial_filter.get_filter_simd(sample_filter(initial_filter));
 
-                    layer_values = filter.apply_filter_simd(layer_values, sampled_values);
+                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
+                        let filter_sample = filter.get_filter_simd(sample_filter(filter));
+                        
+                        match layer.filter_combinator {
+                            FilterCombinator::Max => acc.max(filter_sample),
+                            FilterCombinator::Min => acc.min(filter_sample),
+                            FilterCombinator::Multiply => acc * filter_sample,
+                            FilterCombinator::Sum => (acc + filter_sample).min(Vec4::splat(1.0)),
+                            FilterCombinator::SumUncapped => acc + filter_sample,
+                        }
+                    });
+
+                    layer_values *= calculated_filter_strength;
                 }
 
                 layer_heights += layer_values;
@@ -551,22 +573,22 @@ pub(super) fn apply_noise_simd(
                     noise_cache.get_by_index(noise_detail_index_cache[j] as usize),
                 );
 
-                if let Some(filter) = &layer.filter {
-                    let sampled_value = match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_value,
+                if let Some(initial_filter) = layer.filter.first() {
+                    let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
+                        FilterComparingTo::ToSelf => layer_height / layer.layer.amplitude,
                         FilterComparingTo::Data { index } => terrain_noise_layers
-                        .data
-                        .get(*index as usize)
-                        .map(|layer| {
-                            layer.sample_raw(
-                                vertex_position.x,
-                                vertex_position.y,
-                                noise_cache.get_by_index(
-                                    noise_data_index_cache[*index as usize] as usize,
-                                ),
-                            )
-                        })
-                        .unwrap_or(0.0),
+                            .data
+                            .get(*index as usize)
+                            .map(|layer| {
+                                layer.sample_raw(
+                                    vertex_position.x,
+                                    vertex_position.y,
+                                    noise_cache.get_by_index(
+                                        noise_data_index_cache[*index as usize] as usize,
+                                    ),
+                                )
+                            })
+                            .unwrap_or(0.0),
                         FilterComparingTo::Spline { index } => terrain_noise_layers
                             .splines
                             .get(*index as usize)
@@ -594,8 +616,21 @@ pub(super) fn apply_noise_simd(
                             })
                             .unwrap_or(0.0),
                     };
+                    let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
 
-                    layer_value = filter.apply_filter(layer_value, sampled_value);
+                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
+                        let filter_sample = filter.get_filter(sample_filter(filter));
+                        
+                        match layer.filter_combinator {
+                            FilterCombinator::Max => acc.max(filter_sample),
+                            FilterCombinator::Min => acc.min(filter_sample),
+                            FilterCombinator::Multiply => acc * filter_sample,
+                            FilterCombinator::Sum => (acc + filter_sample).min(1.0),
+                            FilterCombinator::SumUncapped => acc + filter_sample,
+                        }
+                    });
+
+                    layer_value *= calculated_filter_strength;
                 }
 
                 layer_height += layer_value;
