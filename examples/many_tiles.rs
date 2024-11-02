@@ -34,7 +34,7 @@ use bevy_world_seed::{
     },
     meshing::TerrainMeshRebuildQueue,
     noise::{
-        DomainWarping, FilterCombinator, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
+        DomainWarping, FilterCombinator, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseScaling, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
     },
     terrain::{Terrain, TileToTerrain},
     RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
@@ -76,7 +76,8 @@ fn main() {
                             amplitude: 60.0,
                             frequency: 0.004,
                             z_offset: 10.0
-                        }]
+                        }],
+                        scaling: NoiseScaling::Normalized
                     },
                     filter: vec![NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.4),
@@ -91,7 +92,8 @@ fn main() {
                         amplitude: 8.0,
                         frequency: 0.01,
                         seed: 1,
-                        domain_warp: vec![]
+                        domain_warp: vec![],
+                        scaling: NoiseScaling::Normalized
                     },
                     filter: vec![],
                     filter_combinator: FilterCombinator::Max
@@ -101,7 +103,8 @@ fn main() {
                         amplitude: 4.0,
                         frequency: 0.02,
                         seed: 2,
-                        domain_warp: vec![]
+                        domain_warp: vec![],
+                        scaling: NoiseScaling::Normalized
                     },
                     filter: vec![],
                     filter_combinator: FilterCombinator::Max
@@ -111,7 +114,8 @@ fn main() {
                         amplitude: 2.0,
                         frequency: 0.04,
                         seed: 3,
-                        domain_warp: vec![]
+                        domain_warp: vec![],
+                        scaling: NoiseScaling::Normalized
                     },
                     filter: vec![],
                     filter_combinator: FilterCombinator::Max
@@ -399,7 +403,7 @@ impl EditorWindow for NoiseDebugWindow {
                 ui.heading("Detail Noise");
 
                 for (i, detail_layer) in noise_settings.layers.iter().enumerate() {
-                    let noise_raw = detail_layer.layer.sample_raw(
+                    let noise_raw = detail_layer.layer.sample_scaled_raw(
                         translation.x,
                         translation.z,
                         noise_cache.get(detail_layer.layer.seed),
@@ -415,7 +419,7 @@ impl EditorWindow for NoiseDebugWindow {
 
                 ui.heading("Data");
                 for (i, data_layer) in noise_settings.data.iter().enumerate() {
-                    let noise = data_layer.sample_raw(translation.x, translation.z, noise_cache.get(data_layer.seed));
+                    let noise = data_layer.sample_scaled_raw(translation.x, translation.z, noise_cache.get(data_layer.seed));
                     
                     ui.label(format!("- {i}: {noise:.3}"));
                 }

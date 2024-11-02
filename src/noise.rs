@@ -182,6 +182,27 @@ impl DomainWarping {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Clone, PartialEq, Default)]
+#[reflect(Default)]
+pub enum NoiseScaling {
+    /// Noise is scaled to range -1.0..=1.0
+    #[default]
+    Normalized,
+    /// Noise is scaled to range 0.0..=1.0.
+    /// 
+    /// This makes the noise only additive.
+    Unitized,
+    /// Noise is normalized and the absolute value is returned.
+    /// 
+    /// Useful to make wavy hills.
+    Billow,
+    /// Noise is normalized and the complement to the absolute value is returned.
+    /// 
+    /// Useful to make shapr alpine like ridges.
+    Ridged
+}
+
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Clone, PartialEq)]
 #[reflect(Default)]
 pub struct TerrainNoiseDetailLayer {
@@ -196,7 +217,9 @@ pub struct TerrainNoiseDetailLayer {
     /// Seed for the noise function.
     pub seed: u32,
     /// Applies domain warping to the noise layer.
-    pub domain_warp: Vec<DomainWarping>
+    pub domain_warp: Vec<DomainWarping>,
+    /// Scaling of the noise.
+    pub scaling: NoiseScaling
 }
 impl TerrainNoiseDetailLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude.
@@ -204,12 +227,19 @@ impl TerrainNoiseDetailLayer {
     /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
     /// It is not contained within the noise layer to keep the size of a layer smaller.
     ///
-    /// The result is normalized.
+    /// The result is scaled according to `scaling`.
     #[inline]
-    pub fn sample_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
+    pub fn sample_scaled_raw(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
         let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp(x, z, noise));
 
-        (noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) / 2.0 + 0.5) as f32
+        let noise = noise.get([(x * self.frequency) as f64, (z * self.frequency) as f64]) as f32;
+
+        match &self.scaling {
+            NoiseScaling::Normalized => noise,
+            NoiseScaling::Unitized => noise / 2.0 + 0.5,
+            NoiseScaling::Billow => noise.abs(),
+            NoiseScaling::Ridged => 1.0 - noise.abs(),
+        }
     }
 
     /// Sample noise at the x & z coordinates.
@@ -218,30 +248,36 @@ impl TerrainNoiseDetailLayer {
     /// It is not contained within the noise layer to keep the size of a layer smaller.
     #[inline]
     pub fn sample(&self, x: f32, z: f32, noise: &Simplex) -> f32 {
-        self.sample_raw(x, z, noise) * self.amplitude
+        self.sample_scaled_raw(x, z, noise) * self.amplitude
     }
 
     /// The result is normalized.
     #[inline]
-    fn sample_simd_raw(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
+    fn sample_simd_scaled_raw(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
         let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp_simd(x, z, noise));
 
         let x = x * self.frequency;
         let z = z * self.frequency;
 
-        Vec4::new(
+        let noise =Vec4::new(
             noise.get([x.x as f64, z.x as f64]) as f32,
             noise.get([x.y as f64, z.y as f64]) as f32,
             noise.get([x.z as f64, z.z as f64]) as f32,
             noise.get([x.w as f64, z.w as f64]) as f32,
-        ) / 2.0
-            + Vec4::splat(0.5)
+        );
+
+        match &self.scaling {
+            NoiseScaling::Normalized => noise,
+            NoiseScaling::Unitized => noise / 2.0 + Vec4::splat(0.5),
+            NoiseScaling::Billow => noise.abs(),
+            NoiseScaling::Ridged => Vec4::ONE - noise.abs(),
+        }
     }
 
     #[inline]
     pub fn sample_simd(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
         // Step 1: Get the noise values for all 4 positions (x, z)
-        let noise_values = self.sample_simd_raw(x, z, noise);
+        let noise_values = self.sample_simd_scaled_raw(x, z, noise);
 
         // Step 2: Multiply by the amplitude
         noise_values * Vec4::splat(self.amplitude)
@@ -253,7 +289,8 @@ impl Default for TerrainNoiseDetailLayer {
             amplitude: 1.0,
             frequency: 1.0,
             seed: 1,
-            domain_warp: vec![]
+            domain_warp: vec![],
+            scaling: NoiseScaling::Normalized
         }
     }
 }
@@ -303,19 +340,17 @@ impl NoiseFilter {
     ) -> f32 {
         let strength = match &self.condition {
             NoiseFilterCondition::Above(threshold) => {
-                1.0 - ((threshold - noise_value).max(0.0) / self.falloff.max(f32::EPSILON))
-                    .clamp(0.0, 1.0)
+                1.0 - (threshold - noise_value / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Below(threshold) => {
-                1.0 - ((noise_value - threshold).max(0.0) / self.falloff.max(f32::EPSILON))
-                    .clamp(0.0, 1.0)
+                1.0 - (noise_value - threshold / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Between { min, max } => {
                 let strength_below = 1.0
-                    - ((min - noise_value).max(0.0) / self.falloff.max(f32::EPSILON))
+                    - ((min - noise_value) / self.falloff.max(f32::EPSILON))
                         .clamp(0.0, 1.0);
                 let strength_above = 1.0
-                    - ((noise_value - max).max(0.0) / self.falloff.max(f32::EPSILON))
+                    - ((noise_value - max) / self.falloff.max(f32::EPSILON))
                         .clamp(0.0, 1.0);
 
                 strength_below.min(strength_above)
@@ -331,23 +366,23 @@ impl NoiseFilter {
         let strength = match &self.condition {
             NoiseFilterCondition::Above(threshold) => {
                 Vec4::ONE
-                    - ((Vec4::splat(*threshold) - noise_value).max(Vec4::ZERO)
+                    - ((Vec4::splat(*threshold) - noise_value)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE)
             }
             NoiseFilterCondition::Below(threshold) => {
                 Vec4::ONE
-                    - ((noise_value - Vec4::splat(*threshold)).max(Vec4::ZERO)
+                    - ((noise_value - Vec4::splat(*threshold))
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE)
             }
             NoiseFilterCondition::Between { min, max } => {
                 let strength_below = 1.0
-                    - ((Vec4::splat(*min) - noise_value).max(Vec4::ZERO)
+                    - ((Vec4::splat(*min) - noise_value)
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE);
                 let strength_above = 1.0
-                    - ((noise_value - Vec4::splat(*max)).max(Vec4::ZERO)
+                    - ((noise_value - Vec4::splat(*max))
                         / self.falloff.max(f32::EPSILON))
                     .clamp(Vec4::ZERO, Vec4::ONE);
 
@@ -480,7 +515,7 @@ pub(super) fn apply_noise_simd(
                             .data
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.sample_simd_raw(
+                                layer.sample_simd_scaled_raw(
                                     x_translated,
                                     z_translated,
                                     noise_cache.get_by_index(
@@ -506,7 +541,7 @@ pub(super) fn apply_noise_simd(
                             .layers
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.layer.sample_simd_raw(
+                                layer.layer.sample_simd_scaled_raw(
                                     x_translated,
                                     z_translated,
                                     noise_cache.get_by_index(
@@ -577,7 +612,7 @@ pub(super) fn apply_noise_simd(
                             .data
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.sample_raw(
+                                layer.sample_scaled_raw(
                                     vertex_position.x,
                                     vertex_position.y,
                                     noise_cache.get_by_index(
@@ -603,7 +638,7 @@ pub(super) fn apply_noise_simd(
                             .layers
                             .get(*index as usize)
                             .map(|layer| {
-                                layer.layer.sample_raw(
+                                layer.layer.sample_scaled_raw(
                                     vertex_position.x,
                                     vertex_position.y,
                                     noise_cache.get_by_index(
