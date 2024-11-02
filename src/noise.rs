@@ -1,9 +1,6 @@
 use ::noise::{NoiseFn, Simplex};
 use bevy::{
-    asset::{Assets, Handle},
-    math::{UVec4, Vec2, Vec4},
-    prelude::{ReflectDefault, ReflectResource, Resource},
-    reflect::Reflect,
+    asset::{Assets, Handle}, math::{UVec4, Vec2, Vec4}, prelude::{ReflectDefault, ReflectResource, Resource}, reflect::Reflect
 };
 use bevy_lookup_curve::LookupCurve;
 
@@ -513,7 +510,7 @@ pub(super) fn apply_noise_simd(
                                     x_translated,
                                     z_translated,
                                     noise_cache.get_by_index(
-                                        noise_spline_index_cache[*index as usize] as usize,
+                                        noise_detail_index_cache[*index as usize] as usize,
                                     ),
                                 )
                             })
@@ -575,7 +572,7 @@ pub(super) fn apply_noise_simd(
 
                 if let Some(initial_filter) = layer.filter.first() {
                     let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_height / layer.layer.amplitude,
+                        FilterComparingTo::ToSelf => layer_value / layer.layer.amplitude,
                         FilterComparingTo::Data { index } => terrain_noise_layers
                             .data
                             .get(*index as usize)
@@ -610,7 +607,7 @@ pub(super) fn apply_noise_simd(
                                     vertex_position.x,
                                     vertex_position.y,
                                     noise_cache.get_by_index(
-                                        noise_spline_index_cache[*index as usize] as usize,
+                                        noise_detail_index_cache[*index as usize] as usize,
                                     ),
                                 )
                             })
