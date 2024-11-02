@@ -59,7 +59,7 @@ fn main() {
             max_spline_simplification_distance_squared: 6.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
-            texture_resolution_power: NonZeroU8::new(6).unwrap(),
+            texture_resolution_power: NonZeroU8::new(7).unwrap(),
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
         }),
         debug_draw: true,

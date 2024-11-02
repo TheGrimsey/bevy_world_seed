@@ -153,7 +153,7 @@ fn closest_normal_in_triangle(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32) -> Vec3
     let w = y;
 
     // Return the interpolated height based on barycentric coordinates
-    a * u + b * v + c * w
+    (a * u + b * v + c * w).normalize_or_zero()
 }
 
 #[inline]

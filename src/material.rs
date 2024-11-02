@@ -574,8 +574,8 @@ fn update_terrain_texture_maps(
                         let vertex_c = vertex_a + terrain_settings.edge_points as u32;
                         let vertex_d = vertex_a + terrain_settings.edge_points as u32 + 1;
 
-                        let local_x = x_f.fract_gl();
-                        let local_z = z_f.fract_gl();
+                        let local_x = x_f.fract();
+                        let local_z = z_f.fract();
 
                         // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
 
@@ -627,7 +627,7 @@ fn update_terrain_texture_maps(
                                     (*normals.get_unchecked(vertex_d.x as usize)).into(),
                                     local_x.x,
                                     local_z.x,
-                                ).normalize().dot(Vec3::Y).acos(),
+                                ).dot(Vec3::Y).acos(),
                                 get_normal_at_position_in_quad(
                                     (*normals.get_unchecked(vertex_a.y as usize)).into(),
                                     (*normals.get_unchecked(vertex_b.y as usize)).into(),
@@ -635,7 +635,7 @@ fn update_terrain_texture_maps(
                                     (*normals.get_unchecked(vertex_d.y as usize)).into(),
                                     local_x.y,
                                     local_z.y,
-                                ).normalize().dot(Vec3::Y).acos(),
+                                ).dot(Vec3::Y).acos(),
                                 get_normal_at_position_in_quad(
                                     (*normals.get_unchecked(vertex_a.z as usize)).into(),
                                     (*normals.get_unchecked(vertex_b.z as usize)).into(),
@@ -643,7 +643,7 @@ fn update_terrain_texture_maps(
                                     (*normals.get_unchecked(vertex_d.z as usize)).into(),
                                     local_x.z,
                                     local_z.z,
-                                ).normalize().dot(Vec3::Y).acos(),
+                                ).dot(Vec3::Y).acos(),
                                 get_normal_at_position_in_quad(
                                     (*normals.get_unchecked(vertex_a.w as usize)).into(),
                                     (*normals.get_unchecked(vertex_b.w as usize)).into(),
@@ -651,7 +651,7 @@ fn update_terrain_texture_maps(
                                     (*normals.get_unchecked(vertex_d.w as usize)).into(),
                                     local_x.w,
                                     local_z.w,
-                                ).normalize().dot(Vec3::Y).acos(),
+                                ).dot(Vec3::Y).acos(),
                             )
                         };
 
