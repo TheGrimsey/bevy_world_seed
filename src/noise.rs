@@ -340,10 +340,10 @@ impl NoiseFilter {
     ) -> f32 {
         let strength = match &self.condition {
             NoiseFilterCondition::Above(threshold) => {
-                1.0 - (threshold - noise_value / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
+                1.0 - ((threshold - noise_value) / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Below(threshold) => {
-                1.0 - (noise_value - threshold / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
+                1.0 - ((noise_value - threshold) / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
             }
             NoiseFilterCondition::Between { min, max } => {
                 let strength_below = 1.0
