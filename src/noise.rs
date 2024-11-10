@@ -444,15 +444,78 @@ impl TerrainNoiseSettings {
         pos: Vec2,
         lookup_curves: &Assets<LookupCurve>,
     ) -> f32 {
-        let spline_height = self.splines.iter().fold(0.0, |acc, layer| {
-            acc + layer.sample(pos.x, pos.y, noise_cache.get(layer.seed), lookup_curves)
-        });
+            let spline_height = self.splines.iter().fold(0.0, |acc, layer| {
+                acc + layer.sample(
+                    pos.x,
+                    pos.y,
+                    noise_cache.get(layer.seed),
+                    lookup_curves,
+                )
+            });
 
-        let layer_height = self.layers.iter().fold(0.0, |acc, layer| {
-            acc + layer
-                .layer
-                .sample(pos.x, pos.y, noise_cache.get(layer.layer.seed))
-        });
+            let layer_height = self.layers.iter().fold(0.0, |acc, layer| {
+                let mut layer_value = layer.layer.sample(
+                    pos.x,
+                    pos.y,
+                    noise_cache.get(layer.layer.seed),
+                );
+
+                if let Some(initial_filter) = layer.filter.first() {
+                    let mut sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
+                        FilterComparingTo::ToSelf => layer_value / layer.layer.amplitude,
+                        FilterComparingTo::Data { index } => self
+                            .data
+                            .get(*index as usize)
+                            .map(|layer| {
+                                layer.sample_scaled_raw(
+                                    pos.x,
+                                    pos.y,
+                                    noise_cache.get(layer.seed),
+                                )
+                            })
+                            .unwrap_or(0.0),
+                        FilterComparingTo::Spline { index } => self
+                            .splines
+                            .get(*index as usize)
+                            .map(|spline| {
+                                spline.sample_raw(
+                                    pos.x,
+                                    pos.y,
+                                    noise_cache.get(spline.seed),
+                                )
+                            })
+                            .unwrap_or(0.0),
+                        FilterComparingTo::Detail { index } => self
+                            .layers
+                            .get(*index as usize)
+                            .map(|layer| {
+                                layer.layer.sample_scaled_raw(
+                                    pos.x,
+                                    pos.y,
+                                    noise_cache.get(layer.layer.seed),
+                                )
+                            })
+                            .unwrap_or(0.0),
+                    };
+                    let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
+
+                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
+                        let filter_sample = filter.get_filter(sample_filter(filter));
+                        
+                        match layer.filter_combinator {
+                            FilterCombinator::Max => acc.max(filter_sample),
+                            FilterCombinator::Min => acc.min(filter_sample),
+                            FilterCombinator::Multiply => acc * filter_sample,
+                            FilterCombinator::Sum => (acc + filter_sample).min(1.0),
+                            FilterCombinator::SumUncapped => acc + filter_sample,
+                        }
+                    });
+
+                    layer_value *= calculated_filter_strength;
+                }
+
+                acc + layer_value
+            });
 
         spline_height + layer_height
     }
@@ -587,18 +650,16 @@ pub(super) fn apply_noise_simd(
         let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
         unsafe {
-            let mut spline_height = 0.0;
-            for (j, layer) in terrain_noise_layers.splines.iter().enumerate() {
-                spline_height += layer.sample(
+            let spline_height = terrain_noise_layers.splines.iter().enumerate().fold(0.0, |acc, (j, layer)| {
+                acc + layer.sample(
                     vertex_position.x,
                     vertex_position.y,
                     noise_cache.get_by_index(noise_spline_index_cache[j] as usize),
                     lookup_curves,
-                );
-            }
+                )
+            });
 
-            let mut layer_height = 0.0;
-            for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
+            let layer_height = terrain_noise_layers.layers.iter().enumerate().fold(0.0, |acc, (j, layer)| {
                 let mut layer_value = layer.layer.sample(
                     vertex_position.x,
                     vertex_position.y,
@@ -665,8 +726,8 @@ pub(super) fn apply_noise_simd(
                     layer_value *= calculated_filter_strength;
                 }
 
-                layer_height += layer_value;
-            }
+                acc + layer_value
+            });
 
             *height = spline_height + layer_height;
         }
