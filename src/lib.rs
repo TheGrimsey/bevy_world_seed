@@ -43,7 +43,7 @@ pub mod modifiers;
 pub mod terrain;
 
 #[cfg(feature = "debug_draw")]
-mod debug_draw;
+pub mod debug_draw;
 #[cfg(feature = "rendering")]
 pub mod material;
 #[cfg(feature = "rendering")]
