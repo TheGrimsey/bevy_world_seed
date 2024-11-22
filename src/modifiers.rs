@@ -1,12 +1,8 @@
-use bevy::{
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
-        Bundle, Changed, Component, CubicCurve, Entity, EventReader, EventWriter, GlobalTransform,
-        Or, Query, ReflectComponent, Res, ResMut, Resource, TransformBundle,
-    },
-    reflect::Reflect,
-    utils::HashMap,
-};
+use bevy_math::{IVec2, Vec2, Vec3, Vec3Swizzles, prelude::CubicCurve};
+use bevy_ecs::prelude::{Bundle, Changed, Component, Entity, EventReader, EventWriter, Or, Query, Res, ResMut, Resource, ReflectComponent};
+use bevy_transform::prelude::{GlobalTransform, TransformBundle};
+use bevy_reflect::Reflect;
+use bevy_utils::HashMap;
 
 use crate::{easing::EasingFunction, noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
 

@@ -3,19 +3,15 @@
 
 use std::num::NonZeroU8;
 
-use bevy::{
-    app::{App, Plugin, PostUpdate},
-    asset::Assets,
-    log::info_span,
-    math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
-        any_with_component, resource_changed, AnyOf, Component, Deref, DetectChanges, Event,
-        EventReader, EventWriter, IntoSystemConfigs, Local, Query, ReflectResource, Res, ResMut,
-        Resource, SystemSet, TransformSystem,
-    },
-    reflect::Reflect,
-    transform::components::GlobalTransform,
-};
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_asset::Assets;
+use bevy_math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles};
+use bevy_ecs::prelude::{any_with_component, resource_changed, AnyOf, Component, DetectChanges, Event, EventReader, EventWriter, Local, Query, Res, ResMut, Resource, SystemSet, IntoSystemConfigs, ReflectResource};
+use bevy_transform::prelude::{GlobalTransform, TransformSystem};
+use bevy_log::info_span;
+use bevy_reflect::Reflect;
+use bevy_derive::Deref;
+
 use bevy_lookup_curve::{LookupCurve, LookupCurvePlugin};
 #[cfg(feature = "debug_draw")]
 use debug_draw::TerrainDebugDrawPlugin;

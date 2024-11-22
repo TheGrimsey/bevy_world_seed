@@ -1,24 +1,20 @@
 use std::num::NonZeroU8;
 
-use bevy::{
-    app::{App, Plugin, PostUpdate},
-    asset::{load_internal_asset, Asset, AssetApp, Assets, Handle},
-    log::{info, info_span},
-    math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4},
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial},
-    prelude::{
-        default, Commands, Component, Entity, EventReader, GlobalTransform, Image,
-        IntoSystemConfigs, Mesh, Query, ReflectComponent, ReflectDefault, ReflectResource, Res,
-        ResMut, Resource, Shader, With, Without,
-    },
-    reflect::Reflect,
-    render::{
-        primitives::Aabb,
-        render_asset::RenderAssetUsages,
-        render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
-        texture::TextureFormatPixelInfo,
-    },
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_asset::{load_internal_asset, Asset, AssetApp, Assets, Handle};
+use bevy_log::{info, info_span};
+use bevy_math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4};
+use bevy_pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial};
+use bevy_ecs::prelude::{Commands, Component, Entity, EventReader, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent, ReflectResource};
+use bevy_render::{
+    primitives::Aabb,
+    render_asset::RenderAssetUsages,
+    render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
+    texture::TextureFormatPixelInfo,
+    prelude::{Mesh, Image, Shader}
 };
+use bevy_transform::prelude::GlobalTransform;
+use bevy_reflect::{Reflect, prelude::ReflectDefault};
 
 use crate::{
     distance_squared_to_line_segment,
@@ -422,14 +418,14 @@ fn insert_texture_map(
 
         let material = TerrainMaterial {
             texture_map: image_handle,
-            ..default()
+            ..Default::default()
         };
 
         let material_handle = materials.add(TerrainMaterialExtended {
             base: StandardMaterial {
                 perceptual_roughness: 1.0,
                 reflectance: 0.0,
-                ..default()
+                ..Default::default()
             },
             extension: material,
         });

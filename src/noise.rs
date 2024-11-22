@@ -1,7 +1,8 @@
 use ::noise::{NoiseFn, Simplex};
-use bevy::{
-    asset::{Assets, Handle}, math::{UVec4, Vec2, Vec4}, prelude::{ReflectDefault, ReflectResource, Resource}, reflect::Reflect
-};
+use bevy_asset::{Assets, Handle};
+use bevy_math::{UVec4, Vec2, Vec4};
+use bevy_ecs::prelude::{ReflectResource, Resource};
+use bevy_reflect::{prelude::ReflectDefault, Reflect};
 use bevy_lookup_curve::LookupCurve;
 
 use crate::{

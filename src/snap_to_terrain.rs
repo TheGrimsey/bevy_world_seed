@@ -1,20 +1,18 @@
 //! System for automatically snapping entities to the height of the terrain.
 
-use bevy::{
-    app::{App, Plugin, PostUpdate},
-    ecs::entity::EntityHashSet,
-    math::{IVec2, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
-        any_with_component, on_event, Changed, Commands, Component, Entity, EventReader,
-        GlobalTransform, IntoSystemConfigs, Mut, Or, Parent, Query, ReflectComponent, Res, ResMut,
-        Resource, Transform, TransformSystem, With, Without,
-    },
-    reflect::Reflect,
-    utils::HashMap,
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    prelude::{any_with_component, on_event, Changed, Commands, Component, Entity, EventReader, Or, Mut, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent},
+    entity::EntityHashSet
 };
+use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
+use bevy_transform::prelude::{Transform, TransformSystem, GlobalTransform};
+use bevy_reflect::Reflect;
+use bevy_utils::HashMap;
+use bevy_hierarchy::Parent;
 
 use crate::{
-    terrain::TileToTerrain, utils::get_height_at_position_in_tile, Heights, TerrainSettings,
+    terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSettings,
     TileHeightsRebuilt,
 };
 
@@ -55,6 +53,8 @@ pub struct SnapToTerrain {
     ///
     /// Modify this to push an entity further into the ground or above it.
     pub y_offset: f32,
+
+    pub align_to_terrain_normal: bool
 }
 
 #[derive(Component, Reflect)]
@@ -65,6 +65,10 @@ struct SnapEntityTile {
     /// Cached offset applied to the entity.
     /// Used to "recover" an entity's position after rotated.
     offset: Vec3,
+
+    /// Original rotation of the entity.
+    /// Used to "recover" an entity's rotation.
+    rotation: Quat
 }
 
 #[derive(Resource, Default)]
@@ -91,6 +95,7 @@ fn snap_on_added(
         commands.entity(entity).insert(SnapEntityTile {
             tile: tile_coordinate,
             offset: Vec3::ZERO,
+            rotation: Quat::IDENTITY
         });
     });
 }
@@ -182,6 +187,25 @@ fn update_snap_position(
     // Prevents us from ending up in a loop where GlobalTransform keeps being updated.
     if localized_translation.distance_squared(transform.translation) > 0.001 {
         transform.translation = localized_translation;
+    }
+
+    if snap_to_terrain.align_to_terrain_normal {
+        let terrain_normal = get_flat_normal_at_position_in_tile(relative_location, tile, terrain_settings);
+
+        // Calculate the angle between Y axis and the normal
+        let dot = Vec3::Y.dot(terrain_normal);
+        let angle = dot.acos();
+
+        // Calculate the rotation axis as the cross product of Y axis and the normal
+        let axis = Vec3::Y.cross(terrain_normal).normalize();
+
+        let normal_rotation = Quat::from_axis_angle(axis, angle);
+
+        if normal_rotation != snap_entity_tile.rotation {
+            snap_entity_tile.rotation = normal_rotation;
+    
+            transform.rotation = normal_rotation;
+        }
     }
 }
 

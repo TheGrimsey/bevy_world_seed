@@ -1,18 +1,17 @@
-use bevy::{
-    app::{App, Plugin, PostUpdate},
-    asset::{Assets, Handle},
-    log::info_span,
-    math::{IVec2, Vec2, Vec3, Vec3A, Vec4},
-    prelude::{
-        Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Mesh, Query, Res,
-        ResMut, Resource,
-    },
-    render::{
-        mesh::{Indices, PrimitiveTopology},
-        primitives::Aabb,
-        render_asset::RenderAssetUsages,
-    },
+use bevy_ecs::prelude::{
+    Commands, Entity, Event, EventReader, EventWriter, IntoSystemConfigs, Query, Res,
+    ResMut, Resource
 };
+use bevy_app::prelude::{App, Plugin, PostUpdate};
+use bevy_asset::{Assets, Handle};
+use bevy_render::{
+    prelude::Mesh,
+    mesh::{Indices, PrimitiveTopology},
+    primitives::Aabb,
+    render_asset::RenderAssetUsages,
+};
+use bevy_log::info_span;
+use bevy_math::{IVec2, Vec2, Vec3, Vec3A, Vec4};
 
 use crate::{
     terrain::{Holes, TileToTerrain},

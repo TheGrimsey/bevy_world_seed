@@ -1,4 +1,4 @@
-use bevy::math::{UVec4, Vec2, Vec3};
+use bevy_math::{UVec4, Vec2, Vec3};
 
 use crate::{Heights, TerrainSettings};
 

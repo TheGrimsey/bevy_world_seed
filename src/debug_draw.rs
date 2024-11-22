@@ -1,13 +1,13 @@
-use bevy::{
-    app::{App, Plugin, Update},
-    color::{
-        palettes::css::{BLUE, DARK_CYAN, LIGHT_CYAN},
-        Color,
-    },
-    math::{Quat, Vec2, Vec3, Vec3Swizzles},
-    prelude::{Gizmos, GlobalTransform, IntoSystemConfigs, Query, ReflectResource, Res, Resource},
-    reflect::Reflect,
+use bevy_app::{App, Plugin, Update};
+use bevy_color::{
+    palettes::css::{BLUE, DARK_CYAN, LIGHT_CYAN},
+    Color,
 };
+use bevy_math::{Quat, Vec2, Vec3, Vec3Swizzles};
+use bevy_ecs::prelude::{Query, Resource, Res, IntoSystemConfigs, ReflectResource};
+use bevy_transform::prelude::GlobalTransform;
+use bevy_gizmos::prelude::Gizmos;
+use bevy_reflect::Reflect;
 
 use crate::modifiers::{
     ModifierFalloffProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,

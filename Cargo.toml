@@ -12,12 +12,27 @@ readme = "README.md"
 
 [features]
 debug_draw = ["rendering", "bevy/bevy_gizmos"]
-rendering = ["bevy/bevy_render", "bevy/bevy_pbr", "bevy/bevy_asset"]
+rendering = ["dep:bevy_render", "dep:bevy_pbr"]
 serialize = ["dep:serde"]
 default = ["rendering", "debug_draw"]
 
 [dependencies]
-bevy = { version = "0.14", default-features = false }
+bevy_app = { version = "0.14" }
+bevy_asset = { version = "0.14" }
+bevy_math = { version = "0.14" }
+bevy_ecs = { version = "0.14" }
+bevy_transform = { version = "0.14" }
+bevy_hierarchy = {version = "0.14" }
+bevy_gizmos = { version = "0.14" }
+bevy_reflect = { version = "0.14" }
+bevy_log ={ version = "0.14" }
+bevy_derive = { version = "0.14" }
+bevy_utils = { version = "0.14" }
+
+bevy_render = { version = "0.14", optional = true }
+bevy_pbr = { version = "0.14", optional = true }
+bevy_color = {version = "0.14", optional = true }
+
 bevy_lookup_curve = { version = "0.5", default-features = false, features = ["bevy_asset"] }
 fixedbitset = "0.5"
 noise = { version = "0.9", default-features = false }

@@ -1,16 +1,15 @@
 use core::f32;
 use std::f32::consts::TAU;
-
-use bevy::{
-    app::{App, Plugin, PostUpdate},
-    log::info_span,
-    math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles},
-    prelude::{
-        on_event, Commands, Component, DespawnRecursiveExt, Entity, EventReader, IntoSystemConfigs,
-        Query, ReflectComponent, Res, Resource,
-    },
-    reflect::Reflect,
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
+use bevy_log::info_span;
+use bevy_ecs::prelude::{
+    on_event, Commands, Component, Entity, EventReader, IntoSystemConfigs,
+    Query, ReflectComponent, Res, Resource
 };
+use bevy_hierarchy::DespawnRecursiveExt;
+use bevy_reflect::Reflect;
+
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{

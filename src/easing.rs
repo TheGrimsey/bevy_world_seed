@@ -1,6 +1,5 @@
-use bevy::math::Vec4;
-use bevy::prelude::ReflectDefault;
-use bevy::reflect::Reflect;
+use bevy_math::Vec4;
+use bevy_reflect::{prelude::ReflectDefault, Reflect};
 use core::f32;
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]

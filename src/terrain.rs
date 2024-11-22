@@ -1,13 +1,12 @@
-use bevy::{
-    ecs::component::{ComponentHooks, StorageType},
-    math::{IVec2, Vec3Swizzles},
-    prelude::{
-        Changed, Commands, Component, Deref, DetectChanges, Entity, EventWriter, GlobalTransform,
-        Query, ReflectComponent, Res, ResMut, Resource, With, Without,
-    },
-    reflect::Reflect,
-    utils::HashMap,
+use bevy_derive::Deref;
+use bevy_transform::prelude::GlobalTransform;
+use bevy_ecs::{
+    prelude::{Changed, Commands, Component, DetectChanges, Entity, EventWriter, Query, Res, ResMut, Resource, With, Without, ReflectComponent},
+    component::{ComponentHooks, StorageType}
 };
+use bevy_math::{IVec2, Vec3Swizzles};
+use bevy_reflect::Reflect;
+use bevy_utils::HashMap;
 use fixedbitset::FixedBitSet;
 
 use crate::{

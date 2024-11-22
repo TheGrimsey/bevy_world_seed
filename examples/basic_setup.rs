@@ -262,7 +262,7 @@ fn spawn_terrain(
                 transform: Transform::from_translation(Vec3::new(16.0, 0.0, 16.0)),
                 ..default()
             },
-            SnapToTerrain { y_offset: 0.5 },
+            SnapToTerrain { y_offset: 0.5, align_to_terrain_normal: true },
             Name::new("Snap To Terrain"),
         ))
         .with_children(|child_builder| {
@@ -273,7 +273,7 @@ fn spawn_terrain(
                     transform: Transform::from_translation(Vec3::new(4.0, 0.0, 0.0)),
                     ..default()
                 },
-                SnapToTerrain { y_offset: 0.5 },
+                SnapToTerrain { y_offset: 0.5, align_to_terrain_normal: false },
                 Name::new("Snap To Terrain (Child 1)"),
             ));
 
