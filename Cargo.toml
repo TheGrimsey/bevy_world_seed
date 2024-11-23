@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [features]
-debug_draw = ["rendering", "bevy/bevy_gizmos"]
+debug_draw = ["rendering", "bevy/bevy_gizmos", "dep:bevy_color"]
 rendering = ["dep:bevy_render", "dep:bevy_pbr"]
 serialize = ["dep:serde"]
 default = ["rendering", "debug_draw"]

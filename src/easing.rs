@@ -6,7 +6,6 @@ use core::f32;
 #[derive(Debug, Clone, Copy, Reflect, Default, PartialEq, Eq)]
 #[reflect(Default)]
 pub enum EasingFunction {
-    #[default]
     Linear,
 
     // Sine functions.
@@ -23,6 +22,10 @@ pub enum EasingFunction {
     BackIn,
     BackOut,
     BackInOut,
+    
+    // Smooth Step
+    #[default]
+    SmoothStep
 }
 
 // Back easing constant.
@@ -63,6 +66,9 @@ impl EasingFunction {
                 } else {
                     ((2.0 * x - 2.0).powf(2.0) * ((c2 + 1.0) * (2.0 * x - 2.0) + c2) + 2.0) / 2.0
                 }
+            },
+            EasingFunction::SmoothStep => {
+                x.powf(2.0) * (3.0 - (2.0 * x))
             }
         }
     }
@@ -135,6 +141,9 @@ impl EasingFunction {
                     ((2.0 * x - 2.0).powf(2.0) * ((c2 + 1.0) * (2.0 * x - 2.0) + c2) + 2.0) / 2.0;
 
                 Vec4::select(is_less, back_in, back_out)
+            },
+            EasingFunction::SmoothStep => {
+                x.powf(2.0) * (3.0 - (2.0 * x))
             }
         }
     }
