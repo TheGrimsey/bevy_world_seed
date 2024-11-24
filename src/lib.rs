@@ -251,9 +251,7 @@ fn update_terrain_heights(
         .as_ref()
         .filter(|noise_settings| noise_settings.is_changed())
     {
-        info!("Filling!");
         noise_index_cache.fill_cache(terrain_noise_settings, &mut noise_cache);
-        info!("{noise_index_cache:?}");
     }
 
     for RebuildTile(tile) in event_reader.read() {

@@ -17,7 +17,7 @@ use bevy::{
 use bevy_editor_pls::{
     default_windows::cameras::ActiveEditorCamera,
     editor_window::{EditorWindow, EditorWindowContext},
-    egui::{self, RichText}, AddEditorWindow, EditorPlugin,
+    egui::{self}, AddEditorWindow, EditorPlugin,
 };
 use bevy_lookup_curve::{
     editor::{LookupCurveEditor, LookupCurveEguiEditor},
@@ -393,7 +393,14 @@ impl EditorWindow for NoiseDebugWindow {
             );
             ui.heading(format!("Height: {height}"));
 
-            ui.heading("Spline Noise");
+            ui.heading("Data");
+            for (i, data_layer) in noise_settings.data.iter().enumerate() {
+                let noise = data_layer.sample_scaled_raw(translation.x, translation.z, unsafe { noise_cache.get_by_index(noise_index_cache.data_index_cache[i] as usize) });
+                
+                ui.label(format!("- {i}: {noise:.3}"));
+            }
+
+            ui.heading("Splines");
 
             for (i, spline) in noise_settings.splines.iter().enumerate() {
                 let cached_noise = unsafe { noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize) };
@@ -411,7 +418,7 @@ impl EditorWindow for NoiseDebugWindow {
 
                 if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
                     ui.label(format!(
-                        "- {}: {noise:.5} ({noise_raw:.2})",
+                        "- {}: {noise:.3} ({noise_raw:.3})",
                         lookup_curve.name.as_ref().map_or("", |name| name.as_str())
                     ));
                 }
@@ -433,43 +440,36 @@ impl EditorWindow for NoiseDebugWindow {
 
                 let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
 
-                ui.label(RichText::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).strong());
-                
-                unsafe {
-                    for (i,layer) in group.layers.iter().enumerate() {
-                        let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
-                        
-                        match &layer.operation {
-                            LayerOperation::Noise { noise } => {
-                                let cached_noise = noise_cache.get_by_index(group_noises[i] as usize);
-
-                                let noise_raw = noise.sample_scaled_raw(
-                                    translation.x,
-                                    translation.z,
-                                    cached_noise,
-                                );
-                                let noise = noise.sample(
-                                    translation.x,
-                                    translation.z,
-                                    cached_noise,
-                                );
+                egui::CollapsingHeader::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).id_source(format!("group_{i}")).show(ui, |ui| {
+                    unsafe {
+                        for (i,layer) in group.layers.iter().enumerate() {
+                            let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+                            
+                            match &layer.operation {
+                                LayerOperation::Noise { noise } => {
+                                    let cached_noise = noise_cache.get_by_index(group_noises[i] as usize);
     
-                                ui.label(format!("- {i}: {noise:.3} (Noise: {noise_raw:.3}, Strength: {strength:.3})"));
-                            },
-                            LayerOperation::Step { step } => {
-                                ui.label(format!("- {i}: Step {step} (Strength: {strength:.3})"));
-                            },
+                                    let noise_raw = noise.sample_scaled_raw(
+                                        translation.x,
+                                        translation.z,
+                                        cached_noise,
+                                    );
+                                    let noise = noise.sample(
+                                        translation.x,
+                                        translation.z,
+                                        cached_noise,
+                                    );
+        
+                                    ui.label(format!("- {i}: {noise:.3} (Noise: {noise_raw:.3}, Strength: {strength:.3})"));
+                                },
+                                LayerOperation::Step { step } => {
+                                    ui.label(format!("- {i}: Step {step} (Strength: {strength:.3})"));
+                                },
+                            }
+                        
                         }
-                    
                     }
-                }
-            }
-
-            ui.heading("Data");
-            for (i, data_layer) in noise_settings.data.iter().enumerate() {
-                let noise = data_layer.sample_scaled_raw(translation.x, translation.z, unsafe { noise_cache.get_by_index(noise_index_cache.data_index_cache[i] as usize) });
-                
-                ui.label(format!("- {i}: {noise:.3}"));
+                });
             }
         }
     }
