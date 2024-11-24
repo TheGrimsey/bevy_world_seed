@@ -4,7 +4,7 @@ use bevy_transform::prelude::{GlobalTransform, TransformBundle};
 use bevy_reflect::Reflect;
 use bevy_utils::HashMap;
 
-use crate::{easing::EasingFunction, noise::TerrainNoiseDetailLayer, RebuildTile, TerrainSettings};
+use crate::{easing::EasingFunction, noise::LayerNoiseSettings, RebuildTile, TerrainSettings};
 
 /// Bundle containing all the base components required for a Shape Modifier to function.
 ///
@@ -43,7 +43,7 @@ pub struct ModifierFalloffProperty {
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct ModifierFalloffNoiseProperty {
-    pub noise: TerrainNoiseDetailLayer,
+    pub noise: LayerNoiseSettings,
 }
 
 #[derive(Component, Reflect)]
@@ -81,7 +81,7 @@ pub enum ModifierHeightOperation {
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct ModifierNoiseOperation {
-    pub noise: TerrainNoiseDetailLayer,
+    pub noise: LayerNoiseSettings,
 }
 
 /// Operation for creating holes in terrain.

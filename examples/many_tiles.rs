@@ -9,7 +9,7 @@ use bevy::{
     math::{Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
-        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, Mut, PluginGroup, Res,
+        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, PluginGroup, Res,
         ResMut, Transform, TransformBundle, VisibilityBundle, With, World,
     },
     DefaultPlugins,
@@ -17,7 +17,7 @@ use bevy::{
 use bevy_editor_pls::{
     default_windows::cameras::ActiveEditorCamera,
     editor_window::{EditorWindow, EditorWindowContext},
-    egui, AddEditorWindow, EditorPlugin,
+    egui::{self, RichText}, AddEditorWindow, EditorPlugin,
 };
 use bevy_lookup_curve::{
     editor::{LookupCurveEditor, LookupCurveEguiEditor},
@@ -34,7 +34,7 @@ use bevy_world_seed::{
     },
     meshing::TerrainMeshRebuildQueue,
     noise::{
-        DomainWarping, FilterCombinator, FilterComparingTo, FilteredTerrainNoiseDetailLayer, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseScaling, TerrainNoiseDetailLayer, TerrainNoiseSettings, TerrainNoiseSplineLayer
+        calc_filter_strength, DomainWarping, FilterCombinator, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, TerrainNoiseSettings, TerrainNoiseSplineLayer
     },
     terrain::{Terrain, TileToTerrain},
     RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
@@ -56,71 +56,84 @@ fn main() {
         noise_settings: Some(TerrainNoiseSettings {
             data: vec![],
             splines: vec![],
-            layers: vec![
-                FilteredTerrainNoiseDetailLayer {
-                    layer: TerrainNoiseDetailLayer {
-                        amplitude: 16.0,
-                        frequency: 0.005,
-                        seed: 3,
-                        domain_warp: vec![DomainWarping {
-                            amplitude: 25.0,
-                            frequency: 0.01,
-                            z_offset: 100.0
+            noise_groups: vec![
+                NoiseGroup {
+                    layers: vec![
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 16.0,
+                                    frequency: 0.005,
+                                    seed: 3,
+                                    domain_warp: vec![DomainWarping {
+                                        amplitude: 25.0,
+                                        frequency: 0.01,
+                                        z_offset: 100.0
+                                    },
+                                    DomainWarping {
+                                        amplitude: 50.0,
+                                        frequency: 0.006,
+                                        z_offset: 50.0
+                                    },
+                                    DomainWarping {
+                                        amplitude: 60.0,
+                                        frequency: 0.004,
+                                        z_offset: 10.0
+                                    }],
+                                    scaling: NoiseScaling::Normalized
+                                }
+                            },
+                            filters: vec![NoiseFilter {
+                                condition: NoiseFilterCondition::Above(0.4),
+                                falloff: 0.1,
+                                falloff_easing_function: EasingFunction::CubicInOut,
+                                compare_to: FilterComparingTo::Spline { index: 0 },
+                            }],
+                            filter_combinator: FilterCombinator::Max
                         },
-                        DomainWarping {
-                            amplitude: 50.0,
-                            frequency: 0.006,
-                            z_offset: 50.0
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 8.0,
+                                    frequency: 0.01,
+                                    seed: 1,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Normalized
+                                }
+                            },
+                            filters: vec![],
+                            filter_combinator: FilterCombinator::Max
                         },
-                        DomainWarping {
-                            amplitude: 60.0,
-                            frequency: 0.004,
-                            z_offset: 10.0
-                        }],
-                        scaling: NoiseScaling::Normalized
-                    },
-                    filter: vec![NoiseFilter {
-                        condition: NoiseFilterCondition::Above(0.4),
-                        falloff: 0.1,
-                        falloff_easing_function: EasingFunction::CubicInOut,
-                        compare_to: FilterComparingTo::Spline { index: 0 },
-                    }],
-                    filter_combinator: FilterCombinator::Max
-                },
-                FilteredTerrainNoiseDetailLayer {
-                    layer: TerrainNoiseDetailLayer {
-                        amplitude: 8.0,
-                        frequency: 0.01,
-                        seed: 1,
-                        domain_warp: vec![],
-                        scaling: NoiseScaling::Normalized
-                    },
-                    filter: vec![],
-                    filter_combinator: FilterCombinator::Max
-                },
-                FilteredTerrainNoiseDetailLayer {
-                    layer: TerrainNoiseDetailLayer {
-                        amplitude: 4.0,
-                        frequency: 0.02,
-                        seed: 2,
-                        domain_warp: vec![],
-                        scaling: NoiseScaling::Normalized
-                    },
-                    filter: vec![],
-                    filter_combinator: FilterCombinator::Max
-                },
-                FilteredTerrainNoiseDetailLayer {
-                    layer: TerrainNoiseDetailLayer {
-                        amplitude: 2.0,
-                        frequency: 0.04,
-                        seed: 3,
-                        domain_warp: vec![],
-                        scaling: NoiseScaling::Normalized
-                    },
-                    filter: vec![],
-                    filter_combinator: FilterCombinator::Max
-                },
-            ],
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 4.0,
+                                    frequency: 0.02,
+                                    seed: 2,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Normalized
+                                }
+                            },
+                            filters: vec![],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 2.0,
+                                    frequency: 0.04,
+                                    seed: 3,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Normalized
+                                },
+                            },
+                            filters: vec![],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                    ],
+                    ..default()
+                }
+            ]
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(7).unwrap(),
@@ -331,99 +344,133 @@ impl EditorWindow for NoiseDebugWindow {
     const NAME: &'static str = "Noise Debug";
 
     fn ui(world: &mut World, _cx: EditorWindowContext, ui: &mut egui::Ui) {
-        world.resource_scope(|world, mut noise_cache: Mut<NoiseCache>| {
-            if ui.button("Regenerate Terrain").clicked() {
-                let mut tiles = world
-                    .resource::<TileToTerrain>()
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>();
+        if ui.button("Regenerate Terrain").clicked() {
+            let mut tiles = world
+                .resource::<TileToTerrain>()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
 
-                tiles.sort_by(|a, b| a.x.cmp(&b.x).then(a.y.cmp(&b.y)));
+            tiles.sort_unstable_by(|a, b| a.x.cmp(&b.x).then(a.y.cmp(&b.y)));
 
-                world.send_event_batch(tiles.into_iter().map(RebuildTile));
-            }
+            world.send_event_batch(tiles.into_iter().map(RebuildTile));
+        }
 
-            let heights_queue = world.resource::<TerrainHeightRebuildQueue>();
-            let mesh_queue = world.resource::<TerrainMeshRebuildQueue>();
-            let texture_queue = world.resource::<TerrainTextureRebuildQueue>();
+        let heights_queue = world.resource::<TerrainHeightRebuildQueue>();
+        let mesh_queue = world.resource::<TerrainMeshRebuildQueue>();
+        let texture_queue = world.resource::<TerrainTextureRebuildQueue>();
 
-            if !heights_queue.is_empty() || !mesh_queue.is_empty() || !texture_queue.is_empty() {
-                ui.heading("Queued");
+        if !heights_queue.is_empty() || !mesh_queue.is_empty() || !texture_queue.is_empty() {
+            ui.heading("Queued");
 
-                ui.columns(3, |ui| {
-                    ui[0].label("Heights");
-                    ui[1].label("Meshes");
-                    ui[2].label("Textures");
+            ui.columns(3, |ui| {
+                ui[0].label("Heights");
+                ui[1].label("Meshes");
+                ui[2].label("Textures");
 
-                    ui[0].label(heights_queue.count().to_string());
-                    ui[1].label(mesh_queue.count().to_string());
-                    ui[2].label(texture_queue.count().to_string());
-                });
-            }
+                ui[0].label(heights_queue.count().to_string());
+                ui[1].label(mesh_queue.count().to_string());
+                ui[2].label(texture_queue.count().to_string());
+            });
+        }
 
-            let mut query_state =
-                world.query_filtered::<&GlobalTransform, With<ActiveEditorCamera>>();
-            let lookup_curves = world.resource::<Assets<LookupCurve>>();
+        let mut query_state =
+            world.query_filtered::<&GlobalTransform, With<ActiveEditorCamera>>();
+        let lookup_curves = world.resource::<Assets<LookupCurve>>();
 
-            if let Ok(transform) = query_state.get_single(world) {
-                let noise_settings = world.resource::<TerrainNoiseSettings>();
-                let translation = transform.translation();
+        if let Ok(transform) = query_state.get_single(world) {
+            let noise_cache = world.resource::<NoiseCache>();
+            let noise_settings = world.resource::<TerrainNoiseSettings>();
+            let noise_index_cache = world.resource::<NoiseIndexCache>();
 
-                let height = noise_settings.sample_position(
-                    &mut noise_cache,
-                    translation.xz(),
+            let translation = transform.translation();
+
+            let height = noise_settings.sample_position(
+                noise_cache,
+                noise_index_cache,
+                translation.xz(),
+                lookup_curves,
+            );
+            ui.heading(format!("Height: {height}"));
+
+            ui.heading("Spline Noise");
+
+            for (i, spline) in noise_settings.splines.iter().enumerate() {
+                let cached_noise = unsafe { noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize) };
+                let noise_raw = spline.sample_raw(
+                    translation.x,
+                    translation.z,
+                    cached_noise,
+                );
+                let noise = spline.sample(
+                    translation.x,
+                    translation.z,
+                    cached_noise,
                     lookup_curves,
                 );
-                ui.heading(format!("Height: {height}"));
 
-                ui.heading("Spline Noise");
-
-                for spline in noise_settings.splines.iter() {
-                    let noise_raw = spline.sample_raw(
-                        translation.x,
-                        translation.z,
-                        noise_cache.get(spline.seed),
-                    );
-                    let noise = spline.sample(
-                        translation.x,
-                        translation.z,
-                        noise_cache.get(spline.seed),
-                        lookup_curves,
-                    );
-
-                    if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
-                        ui.label(format!(
-                            "- {}: {noise:.5} ({noise_raw:.2})",
-                            lookup_curve.name.as_ref().map_or("", |name| name.as_str())
-                        ));
-                    }
-                }
-
-                ui.heading("Detail Noise");
-
-                for (i, detail_layer) in noise_settings.layers.iter().enumerate() {
-                    let noise_raw = detail_layer.layer.sample_scaled_raw(
-                        translation.x,
-                        translation.z,
-                        noise_cache.get(detail_layer.layer.seed),
-                    );
-                    let noise = detail_layer.layer.sample(
-                        translation.x,
-                        translation.z,
-                        noise_cache.get(detail_layer.layer.seed),
-                    );
-
-                    ui.label(format!("- {i}: {noise:.5} ({noise_raw:.2})"));
-                }
-
-                ui.heading("Data");
-                for (i, data_layer) in noise_settings.data.iter().enumerate() {
-                    let noise = data_layer.sample_scaled_raw(translation.x, translation.z, noise_cache.get(data_layer.seed));
-                    
-                    ui.label(format!("- {i}: {noise:.3}"));
+                if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
+                    ui.label(format!(
+                        "- {}: {noise:.5} ({noise_raw:.2})",
+                        lookup_curve.name.as_ref().map_or("", |name| name.as_str())
+                    ));
                 }
             }
-        });
+
+            ui.heading("Noise Groups");
+
+            for (i, group) in noise_settings.noise_groups.iter().enumerate() {
+                let group_noises = &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..];
+
+                let noise = group.sample(
+                    noise_settings,
+                    noise_cache,
+                    &noise_index_cache.data_index_cache,
+                    &noise_index_cache.spline_index_cache,
+                    group_noises,
+                    translation.xz()
+                );
+
+                let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+
+                ui.label(RichText::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).strong());
+                
+                unsafe {
+                    for (i,layer) in group.layers.iter().enumerate() {
+                        let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+                        
+                        match &layer.operation {
+                            LayerOperation::Noise { noise } => {
+                                let cached_noise = noise_cache.get_by_index(group_noises[i] as usize);
+
+                                let noise_raw = noise.sample_scaled_raw(
+                                    translation.x,
+                                    translation.z,
+                                    cached_noise,
+                                );
+                                let noise = noise.sample(
+                                    translation.x,
+                                    translation.z,
+                                    cached_noise,
+                                );
+    
+                                ui.label(format!("- {i}: {noise:.3} (Noise: {noise_raw:.3}, Strength: {strength:.3})"));
+                            },
+                            LayerOperation::Step { step } => {
+                                ui.label(format!("- {i}: Step {step} (Strength: {strength:.3})"));
+                            },
+                        }
+                    
+                    }
+                }
+            }
+
+            ui.heading("Data");
+            for (i, data_layer) in noise_settings.data.iter().enumerate() {
+                let noise = data_layer.sample_scaled_raw(translation.x, translation.z, unsafe { noise_cache.get_by_index(noise_index_cache.data_index_cache[i] as usize) });
+                
+                ui.label(format!("- {i}: {noise:.3}"));
+            }
+        }
     }
 }

@@ -26,7 +26,7 @@ use bevy_world_seed::{
         ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle,
         TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     },
-    noise::{FilterCombinator, FilteredTerrainNoiseDetailLayer, NoiseScaling, TerrainNoiseDetailLayer, TerrainNoiseSettings},
+    noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
     terrain::Terrain,
     TerrainPlugin, TerrainSettings,
@@ -41,17 +41,23 @@ fn main() {
         noise_settings: Some(TerrainNoiseSettings {
             data: vec![],
             splines: vec![],
-            layers: vec![FilteredTerrainNoiseDetailLayer {
-                layer: TerrainNoiseDetailLayer {
-                    amplitude: 6.0,
-                    frequency: 1.0 / 30.0,
-                    seed: 1,
-                    domain_warp: vec![],
-                    scaling: NoiseScaling::Normalized
-                },
-                filter: vec![],
-                filter_combinator: FilterCombinator::Max
-            }],
+            noise_groups: vec![
+                NoiseGroup {
+                    layers: vec![NoiseLayer {
+                        operation: LayerOperation::Noise {
+                            noise: LayerNoiseSettings {
+                                amplitude: 6.0,
+                                frequency: 1.0 / 30.0,
+                                seed: 1,
+                                domain_warp: vec![],
+                                scaling: NoiseScaling::Normalized
+                            }
+                        },
+                        ..default()
+                    }],
+                    ..default()
+                }
+            ]
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(5).unwrap(),
@@ -178,7 +184,7 @@ fn spawn_terrain(
             easing_function: EasingFunction::CubicInOut,
         },
         ModifierFalloffNoiseProperty {
-            noise: TerrainNoiseDetailLayer {
+            noise: LayerNoiseSettings {
                 amplitude: 2.0,
                 frequency: 1.0,
                 seed: 5,
@@ -234,7 +240,7 @@ fn spawn_terrain(
         },
         ModifierHeightOperation::Set,
         ModifierNoiseOperation {
-            noise: TerrainNoiseDetailLayer {
+            noise: LayerNoiseSettings {
                 amplitude: 2.0,
                 frequency: 0.1,
                 seed: 5,

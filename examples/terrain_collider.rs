@@ -27,7 +27,7 @@ use bevy_world_seed::{
         ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ModifierTileAabb,
         ShapeModifier, ShapeModifierBundle,
     },
-    noise::{FilterCombinator, FilteredTerrainNoiseDetailLayer, NoiseScaling, TerrainNoiseDetailLayer, TerrainNoiseSettings},
+    noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, TerrainNoiseSettings},
     terrain::{Holes, Terrain, TileToTerrain},
     utils::index_to_x_z,
     Heights, TerrainPlugin, TerrainSettings, TileHeightsRebuilt,
@@ -51,17 +51,23 @@ fn main() {
         noise_settings: Some(TerrainNoiseSettings {
             data: vec![],
             splines: vec![],
-            layers: vec![FilteredTerrainNoiseDetailLayer {
-                layer: TerrainNoiseDetailLayer {
-                    amplitude: 4.0,
-                    frequency: 1.0 / 30.0,
-                    seed: 2,
-                    domain_warp: vec![],
-                    scaling: NoiseScaling::Normalized
-                },
-                filter: vec![],
-                filter_combinator: FilterCombinator::Max
-            }],
+            noise_groups: vec![
+                NoiseGroup {
+                    layers: vec![NoiseLayer {
+                        operation: LayerOperation::Noise {
+                            noise: LayerNoiseSettings {
+                                amplitude: 4.0,
+                                frequency: 1.0 / 30.0,
+                                seed: 2,
+                                domain_warp: vec![],
+                                scaling: NoiseScaling::Normalized
+                            }
+                        },
+                        ..default()
+                    }],
+                    ..default()
+                }
+            ]
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(6).unwrap(),

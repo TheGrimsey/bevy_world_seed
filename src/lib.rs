@@ -6,9 +6,9 @@ use std::num::NonZeroU8;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_asset::Assets;
 use bevy_math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles};
-use bevy_ecs::prelude::{any_with_component, resource_changed, AnyOf, Component, DetectChanges, Event, EventReader, EventWriter, Local, Query, Res, ResMut, Resource, SystemSet, IntoSystemConfigs, ReflectResource};
+use bevy_ecs::prelude::{any_with_component, resource_changed, AnyOf, Component, DetectChanges, Event, EventReader, EventWriter, Query, Res, ResMut, Resource, SystemSet, IntoSystemConfigs, ReflectResource};
 use bevy_transform::prelude::{GlobalTransform, TransformSystem};
-use bevy_log::info_span;
+use bevy_log::{info, info_span};
 use bevy_reflect::Reflect;
 use bevy_derive::Deref;
 
@@ -29,7 +29,7 @@ use modifiers::{
     ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     TileToModifierMapping,
 };
-use noise::{apply_noise_simd, NoiseCache, TerrainNoiseDetailLayer, TerrainNoiseSettings};
+use noise::{apply_noise_simd, LayerNoiseSettings, NoiseCache, NoiseIndexCache, TerrainNoiseSettings};
 use snap_to_terrain::TerrainSnapToTerrainPlugin;
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_squared_to_line_segment, index_to_x_z};
@@ -127,6 +127,7 @@ impl Plugin for TerrainPlugin {
         app.init_resource::<TileToModifierMapping>()
             .init_resource::<TileToTerrain>()
             .init_resource::<NoiseCache>()
+            .init_resource::<NoiseIndexCache>()
             .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
             .register_type::<ModifierTileAabb>()
@@ -145,7 +146,7 @@ impl Plugin for TerrainPlugin {
             .add_event::<TileHeightsRebuilt>();
 
         {
-            app.register_type::<TerrainNoiseDetailLayer>()
+            app.register_type::<LayerNoiseSettings>()
                 .register_type::<TerrainNoiseSettings>();
         }
 
@@ -211,7 +212,7 @@ impl TerrainHeightRebuildQueue {
 }
 
 fn update_terrain_heights(
-    terrain_noise_layers: Option<Res<TerrainNoiseSettings>>,
+    terrain_noise_settings: Option<Res<TerrainNoiseSettings>>,
     shape_modifier_query: Query<(
         &ShapeModifier,
         &ModifierHeightProperties,
@@ -242,39 +243,17 @@ fn update_terrain_heights(
     mut event_reader: EventReader<RebuildTile>,
     mut tile_rebuilt_events: EventWriter<TileHeightsRebuilt>,
     lookup_curves: Res<Assets<LookupCurve>>,
-    mut noise_data_index_cache: Local<Vec<u32>>,
-    mut noise_spline_index_cache: Local<Vec<u32>>,
-    mut noise_detail_index_cache: Local<Vec<u32>>,
+    mut noise_index_cache: ResMut<NoiseIndexCache>
 ) {
     // Cache indexes into the noise cache for each terrain noise.
     // Saves having to do the checks and insertions for every iteration when applying the noise.
-    if let Some(terrain_noise_layers) = terrain_noise_layers
+    if let Some(terrain_noise_settings) = terrain_noise_settings
         .as_ref()
-        .filter(|noise_layers| noise_layers.is_changed())
+        .filter(|noise_settings| noise_settings.is_changed())
     {
-        noise_data_index_cache.clear();
-        noise_data_index_cache.extend(
-            terrain_noise_layers
-                .data
-                .iter()
-                .map(|layer| noise_cache.get_simplex_index(layer.seed) as u32),
-        );
-
-        noise_spline_index_cache.clear();
-        noise_spline_index_cache.extend(
-            terrain_noise_layers
-                .splines
-                .iter()
-                .map(|spline| noise_cache.get_simplex_index(spline.seed) as u32),
-        );
-
-        noise_detail_index_cache.clear();
-        noise_detail_index_cache.extend(
-            terrain_noise_layers
-                .layers
-                .iter()
-                .map(|layer| noise_cache.get_simplex_index(layer.layer.seed) as u32),
-        );
+        info!("Filling!");
+        noise_index_cache.fill_cache(terrain_noise_settings, &mut noise_cache);
+        info!("{noise_index_cache:?}");
     }
 
     for RebuildTile(tile) in event_reader.read() {
@@ -288,7 +267,7 @@ fn update_terrain_heights(
     }
 
     // Don't generate if we are waiting for splines to load.
-    if terrain_noise_layers.as_ref().is_some_and(|layers| {
+    if terrain_noise_settings.as_ref().is_some_and(|layers| {
         layers
             .splines
             .iter()
@@ -320,7 +299,7 @@ fn update_terrain_heights(
             holes.0.clear();
 
             // First, set by noise.
-            if let Some(terrain_noise_layers) = terrain_noise_layers.as_ref() {
+            if let Some(terrain_noise_layers) = terrain_noise_settings.as_ref() {
                 let _span = info_span!("Apply noise").entered();
                 apply_noise_simd(
                     &mut heights.0,
@@ -328,9 +307,7 @@ fn update_terrain_heights(
                     terrain_translation,
                     scale,
                     &noise_cache,
-                    &noise_data_index_cache,
-                    &noise_spline_index_cache,
-                    &noise_detail_index_cache,
+                    &noise_index_cache,
                     &lookup_curves,
                     terrain_noise_layers,
                 );

@@ -11,6 +11,58 @@ use crate::{
     TerrainSettings,
 };
 
+/// This is a cache of the index mapping between noise settings & the NoiseCache.
+/// 
+/// Yeah.
+#[derive(Default, Resource, Debug)]
+pub struct NoiseIndexCache {
+    pub data_index_cache: Vec<u32>,
+    pub spline_index_cache: Vec<u32>,
+
+    // Offset for each group's noise cache.
+    pub group_offset_cache: Vec<u32>,
+    // All noise groups offsets.
+    pub group_index_cache: Vec<u32>,
+}
+impl NoiseIndexCache {
+    pub fn fill_cache(
+        &mut self,
+        terrain_noise_settings: &TerrainNoiseSettings,
+        noise_cache: &mut NoiseCache
+    ) {
+        self.data_index_cache.clear();
+        self.data_index_cache.extend(
+            terrain_noise_settings
+                .data
+                .iter()
+                .map(|layer| noise_cache.get_simplex_index(layer.seed) as u32),
+        );
+        
+        self.spline_index_cache.clear();
+        self.spline_index_cache.extend(
+            terrain_noise_settings
+                .splines
+                .iter()
+                .map(|spline| noise_cache.get_simplex_index(spline.seed) as u32),
+        );
+
+        self.group_offset_cache.clear();
+        self.group_index_cache.clear();
+
+        for group in terrain_noise_settings.noise_groups.iter() {
+            let offset = self.group_index_cache.len();
+            self.group_offset_cache.push(offset as u32);
+
+            self.group_index_cache.extend(
+                group.layers.iter().map(|layer| match &layer.operation {
+                    LayerOperation::Noise { noise } => noise_cache.get_simplex_index(noise.seed) as u32,
+                    LayerOperation::Step { .. } => 0,
+                })
+            );
+        }
+    }
+}
+
 /// Cache of Simplex noise instances & which seeds they map to.
 #[derive(Default, Resource)]
 pub struct NoiseCache {
@@ -27,9 +79,10 @@ impl NoiseCache {
         &self.noises[index]
     }
 
-    /// SAFETY: This is fine as long as the noise has already been initialized (using for example [`NoiseCache::get_simplex_index`])
+    /// # Safety
+    ///  This is fine as long as the noise has already been initialized (using for example [`NoiseCache::get_simplex_index`])
     #[inline]
-    pub(super) unsafe fn get_by_index(&self, index: usize) -> &Simplex {
+    pub unsafe fn get_by_index(&self, index: usize) -> &Simplex {
         self.noises.get_unchecked(index)
     }
 
@@ -99,7 +152,7 @@ impl TerrainNoiseSplineLayer {
     ///
     /// The result is normalized.
     #[inline]
-    fn sample_simd_raw(&self, noise: &Simplex, x: Vec4, z: Vec4) -> Vec4 {
+    fn sample_simd_raw(&self, x: Vec4, z: Vec4, noise: &Simplex) -> Vec4 {
         let (x, z) = self.domain_warp.iter().fold((x, z), |(x, z), warp| warp.warp_simd(x, z, noise));
 
         // Step 1: Get the noise values for all 4 positions (x, z)
@@ -124,7 +177,7 @@ impl TerrainNoiseSplineLayer {
     ) -> Vec4 {
         // Fetch the lookup curve and apply it to all 4 noise values
         if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
-            let normalized_noise = self.sample_simd_raw(noise, x, z);
+            let normalized_noise = self.sample_simd_raw(x, z, noise);
 
             Vec4::new(
                 curve.lookup(normalized_noise.x),
@@ -206,7 +259,7 @@ pub enum NoiseScaling {
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Clone, PartialEq)]
 #[reflect(Default)]
-pub struct TerrainNoiseDetailLayer {
+pub struct LayerNoiseSettings {
     /// Amplitude of the noise.
     ///
     /// Increasing this increases the variance of terrain heights from this layer.
@@ -222,7 +275,7 @@ pub struct TerrainNoiseDetailLayer {
     /// Scaling of the noise.
     pub scaling: NoiseScaling
 }
-impl TerrainNoiseDetailLayer {
+impl LayerNoiseSettings {
     /// Sample noise at the x & z coordinates WITHOUT amplitude.
     ///
     /// `noise` is expected to be a Simplex noise initialized with this `TerrainNoiseLayer`'s `seed`.
@@ -284,7 +337,7 @@ impl TerrainNoiseDetailLayer {
         noise_values * Vec4::splat(self.amplitude)
     }
 }
-impl Default for TerrainNoiseDetailLayer {
+impl Default for LayerNoiseSettings {
     fn default() -> Self {
         Self {
             amplitude: 1.0,
@@ -297,22 +350,253 @@ impl Default for TerrainNoiseDetailLayer {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Default, Clone, PartialEq)]
+#[derive(Reflect, Clone, PartialEq)]
 #[reflect(Default)]
-pub struct FilteredTerrainNoiseDetailLayer {
-    pub layer: TerrainNoiseDetailLayer,
-
-    /// Filter this detail layer to only apply during certain conditions.
-    pub filter: Vec<NoiseFilter>,
-    pub filter_combinator: FilterCombinator
+pub enum LayerOperation {
+    Noise {
+        noise: LayerNoiseSettings
+    },
+    /// Creates terracing.
+    Step {
+        step: f32,
+    },
+}
+impl Default for LayerOperation {
+    fn default() -> Self {
+        LayerOperation::Noise { noise: LayerNoiseSettings::default() }
+    }
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Default, Clone, PartialEq)]
 #[reflect(Default)]
+pub struct NoiseLayer {
+    pub operation: LayerOperation,
+
+    pub filters: Vec<NoiseFilter>,
+    pub filter_combinator: FilterCombinator
+}
+
+pub fn calc_filter_strength(
+    pos: Vec2,
+    filters: &[NoiseFilter],
+    combinator: FilterCombinator,
+    noise_settings: &TerrainNoiseSettings,
+    noise_cache: &NoiseCache,
+    data_noise_cache: &[u32],
+    spline_noise_cache: &[u32]
+) -> f32 {
+    if let Some(initial_filter) = filters.first() {
+        unsafe {
+            let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
+                FilterComparingTo::Data { index } => noise_settings
+                    .data
+                    .get(*index as usize)
+                    .map(|layer| {
+                        layer.sample_scaled_raw(
+                            pos.x,
+                            pos.y,
+                            noise_cache.get_by_index(data_noise_cache[*index as usize] as usize),
+                        )
+                    })
+                    .unwrap_or(0.0),
+                FilterComparingTo::Spline { index } => noise_settings
+                    .splines
+                    .get(*index as usize)
+                    .map(|spline| {
+                        spline.sample_raw(
+                            pos.x,
+                            pos.y,
+                            noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
+                        )
+                    })
+                    .unwrap_or(0.0),
+            };
+            let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
+    
+            let calculated_filter_strength = filters.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
+                let filter_sample = filter.get_filter(sample_filter(filter));
+                
+                match combinator {
+                    FilterCombinator::Max => acc.max(filter_sample),
+                    FilterCombinator::Min => acc.min(filter_sample),
+                    FilterCombinator::Multiply => acc * filter_sample,
+                    FilterCombinator::Sum => (acc + filter_sample).min(1.0),
+                    FilterCombinator::SumUncapped => acc + filter_sample,
+                }
+            });
+    
+            calculated_filter_strength
+        }
+    } else {
+        1.0
+    }
+}
+
+fn calc_filter_strength_simd(
+    x: Vec4,
+    z: Vec4,
+    filters: &[NoiseFilter],
+    combinator: FilterCombinator,
+    noise_settings: &TerrainNoiseSettings,
+    noise_cache: &NoiseCache,
+    data_noise_cache: &[u32],
+    spline_noise_cache: &[u32]
+) -> Vec4 {
+    if let Some(initial_filter) = filters.first() {
+        unsafe {
+            let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
+                FilterComparingTo::Data { index } => noise_settings
+                    .data
+                    .get(*index as usize)
+                    .map(|layer| {
+                        layer.sample_simd_scaled_raw(
+                            x,
+                            z,
+                            noise_cache.get_by_index(data_noise_cache[*index as usize] as usize),
+                        )
+                    })
+                    .unwrap_or(Vec4::ZERO),
+                FilterComparingTo::Spline { index } => noise_settings
+                    .splines
+                    .get(*index as usize)
+                    .map(|spline| {
+                        spline.sample_simd_raw(
+                            x,
+                            z,
+                            noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
+                        )
+                    })
+                    .unwrap_or(Vec4::ZERO),
+            };
+            let initial_filter_strength = initial_filter.get_filter_simd(sample_filter(initial_filter));
+    
+            let calculated_filter_strength = filters.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
+                let filter_sample = filter.get_filter_simd(sample_filter(filter));
+                
+                match combinator {
+                    FilterCombinator::Max => acc.max(filter_sample),
+                    FilterCombinator::Min => acc.min(filter_sample),
+                    FilterCombinator::Multiply => acc * filter_sample,
+                    FilterCombinator::Sum => (acc + filter_sample).min(Vec4::ZERO),
+                    FilterCombinator::SumUncapped => acc + filter_sample,
+                }
+            });
+    
+            calculated_filter_strength
+        }
+    } else {
+        Vec4::ONE
+    }
+}
+
+/**
+ * A grouping of noise layers which can be filtered upon.
+ * 
+ * Useable as a holder for Biome specific noise.
+*/
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Default, Clone, PartialEq)]
+#[reflect(Default)]
+pub struct NoiseGroup {
+    pub layers: Vec<NoiseLayer>,
+
+    /// Filter this detail layer to only apply during certain conditions.
+    pub filters: Vec<NoiseFilter>,
+    pub filter_combinator: FilterCombinator
+}
+impl NoiseGroup {
+    pub fn sample(
+        &self,
+        noise_settings: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        data_noise_cache: &[u32],
+        spline_noise_cache: &[u32],
+        layer_noise_cache: &[u32],
+        pos: Vec2,
+    ) -> f32 {
+        let group_strength = calc_filter_strength(pos, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+        if group_strength <= f32::EPSILON {
+            return 0.0;
+        }
+
+        unsafe {
+            let group_height = self.layers.iter().enumerate().fold(0.0, |acc, (i, layer)| {
+                let layer_strength = calc_filter_strength(pos, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+    
+                if layer_strength > f32::EPSILON {
+                    let layer_value = match &layer.operation {
+                        LayerOperation::Noise { noise } => {
+                            noise.sample(
+                                pos.x,
+                                pos.y,
+                                noise_cache.get_by_index(layer_noise_cache[i] as usize),
+                            )
+                        },
+                        LayerOperation::Step { step } => {
+                            (acc / *step).floor() * *step
+                        },
+                    };
+        
+                    acc + layer_value * layer_strength
+                } else {
+                    acc
+                }
+            });
+         
+            group_height * group_strength
+        }
+    }
+    
+    pub fn sample_simd(
+        &self,
+        noise_settings: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        data_noise_cache: &[u32],
+        spline_noise_cache: &[u32],
+        layer_noise_cache: &[u32],
+        x: Vec4,
+        z: Vec4
+    ) -> Vec4 {
+        let group_strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+        if group_strength.cmple(Vec4::splat(f32::EPSILON)).all() {
+            return Vec4::ZERO;
+        }
+
+        unsafe {
+            let group_height = self.layers.iter().enumerate().fold(Vec4::ZERO, |acc, (i, layer)| {
+                let layer_strength = calc_filter_strength_simd(x, z, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+    
+                if layer_strength.cmpge(Vec4::splat(f32::EPSILON)).any() {
+                    let layer_value = match &layer.operation {
+                        LayerOperation::Noise { noise } => {
+                            noise.sample_simd(
+                                x,
+                                z,
+                                noise_cache.get_by_index(layer_noise_cache[i] as usize),
+                            )
+                        },
+                        LayerOperation::Step { step } => {
+                            (acc / Vec4::splat(*step)).floor() * Vec4::splat(*step)
+                        },
+                    };
+        
+                    acc + layer_value * layer_strength
+                } else {
+                    acc
+                }
+            });
+
+            group_height * group_strength
+        }
+    }
+}
+
+
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Reflect, Clone, PartialEq)]
+#[reflect(Default)]
 pub enum FilterComparingTo {
-    #[default]
-    ToSelf,
     /// Sample from a data noise.
     Data {
         index: u32
@@ -320,9 +604,11 @@ pub enum FilterComparingTo {
     Spline {
         index: u32,
     },
-    Detail {
-        index: u32,
-    },
+}
+impl Default for FilterComparingTo {
+    fn default() -> Self {
+        FilterComparingTo::Data { index: 0 }
+    }
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -397,7 +683,7 @@ impl NoiseFilter {
 
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Default, Clone, PartialEq)]
+#[derive(Reflect, Default, Clone, Copy, PartialEq)]
 #[reflect(Default)]
 pub enum FilterCombinator {
     #[default]
@@ -429,11 +715,11 @@ pub struct TerrainNoiseSettings {
     /// Data noise.
     /// 
     /// Not applied to the world but can be used to for filters.
-    pub data: Vec<TerrainNoiseDetailLayer>,
+    pub data: Vec<LayerNoiseSettings>,
 
     pub splines: Vec<TerrainNoiseSplineLayer>,
 
-    pub layers: Vec<FilteredTerrainNoiseDetailLayer>,
+    pub noise_groups: Vec<NoiseGroup>,
 }
 impl TerrainNoiseSettings {
     /// Samples noise height at the position.
@@ -441,84 +727,53 @@ impl TerrainNoiseSettings {
     /// Returns 0.0 if there are no noise layers.
     pub fn sample_position(
         &self,
-        noise_cache: &mut NoiseCache,
+        noise_cache: &NoiseCache,
+        noise_index_cache: &NoiseIndexCache,
         pos: Vec2,
         lookup_curves: &Assets<LookupCurve>,
     ) -> f32 {
-            let spline_height = self.splines.iter().fold(0.0, |acc, layer| {
+        unsafe {
+            let spline_height = self.splines.iter().enumerate().fold(0.0, |acc, (i, layer)| {
                 acc + layer.sample(
                     pos.x,
                     pos.y,
-                    noise_cache.get(layer.seed),
+                    noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
                     lookup_curves,
                 )
             });
 
-            let layer_height = self.layers.iter().fold(0.0, |acc, layer| {
-                let mut layer_value = layer.layer.sample(
-                    pos.x,
-                    pos.y,
-                    noise_cache.get(layer.layer.seed),
-                );
-
-                if let Some(initial_filter) = layer.filter.first() {
-                    let mut sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_value / layer.layer.amplitude,
-                        FilterComparingTo::Data { index } => self
-                            .data
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.sample_scaled_raw(
-                                    pos.x,
-                                    pos.y,
-                                    noise_cache.get(layer.seed),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                        FilterComparingTo::Spline { index } => self
-                            .splines
-                            .get(*index as usize)
-                            .map(|spline| {
-                                spline.sample_raw(
-                                    pos.x,
-                                    pos.y,
-                                    noise_cache.get(spline.seed),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                        FilterComparingTo::Detail { index } => self
-                            .layers
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.layer.sample_scaled_raw(
-                                    pos.x,
-                                    pos.y,
-                                    noise_cache.get(layer.layer.seed),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                    };
-                    let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
-
-                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
-                        let filter_sample = filter.get_filter(sample_filter(filter));
-                        
-                        match layer.filter_combinator {
-                            FilterCombinator::Max => acc.max(filter_sample),
-                            FilterCombinator::Min => acc.min(filter_sample),
-                            FilterCombinator::Multiply => acc * filter_sample,
-                            FilterCombinator::Sum => (acc + filter_sample).min(1.0),
-                            FilterCombinator::SumUncapped => acc + filter_sample,
-                        }
-                    });
-
-                    layer_value *= calculated_filter_strength;
-                }
-
-                acc + layer_value
+            let layer_height = self.noise_groups.iter().enumerate().fold(0.0, |acc, (i, group)| {
+                acc + group.sample(self, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], pos)
             });
 
-        spline_height + layer_height
+            spline_height + layer_height
+        }
+    }
+
+    pub fn sample_position_simd(
+        &self,
+        noise_cache: &NoiseCache,
+        noise_index_cache: &NoiseIndexCache,
+        lookup_curves: &Assets<LookupCurve>,
+        x: Vec4,
+        z: Vec4
+    ) -> Vec4 {
+        unsafe {
+            let spline_height = self.splines.iter().enumerate().fold(Vec4::ZERO, |acc, (i, layer)| {
+                acc + layer.sample_simd(
+                    x,
+                    z,
+                    noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
+                    lookup_curves,
+                )
+            });
+
+            let layer_height = self.noise_groups.iter().enumerate().fold(Vec4::ZERO, |acc, (i, group)| {
+                acc + group.sample_simd(self, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], x, z)
+            });
+
+            spline_height + layer_height
+        }
     }
 }
 
@@ -528,9 +783,7 @@ pub(super) fn apply_noise_simd(
     terrain_translation: Vec2,
     scale: f32,
     noise_cache: &NoiseCache,
-    noise_data_index_cache: &[u32],
-    noise_spline_index_cache: &[u32],
-    noise_detail_index_cache: &[u32],
+    noise_index_cache: &NoiseIndexCache,
     lookup_curves: &Assets<LookupCurve>,
     terrain_noise_layers: &TerrainNoiseSettings,
 ) {
@@ -554,95 +807,13 @@ pub(super) fn apply_noise_simd(
         let x_translated = x_positions + Vec4::splat(terrain_translation.x);
         let z_translated = z_positions + Vec4::splat(terrain_translation.y);
 
-        // Accumulate spline and layer heights for all 4 points in parallel
-        let mut spline_heights = Vec4::ZERO;
-        let mut layer_heights = Vec4::ZERO;
+        let final_heights = terrain_noise_layers.sample_position_simd(noise_cache, noise_index_cache, lookup_curves, x_translated, z_translated);
 
-        unsafe {
-            // Process all spline layers
-            for (j, layer) in terrain_noise_layers.splines.iter().enumerate() {
-                let noise = noise_cache.get_by_index(noise_spline_index_cache[j] as usize);
-                let spline_values =
-                    layer.sample_simd(x_translated, z_translated, noise, lookup_curves);
-                spline_heights += spline_values;
-            }
-
-            // Process all detail layers
-            for (j, layer) in terrain_noise_layers.layers.iter().enumerate() {
-                let noise = noise_cache.get_by_index(noise_detail_index_cache[j] as usize);
-                let mut layer_values = layer.layer.sample_simd(x_translated, z_translated, noise);
-
-                if let Some(initial_filter) = layer.filter.first() {
-                    let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_values / layer.layer.amplitude,
-                        FilterComparingTo::Data { index } => terrain_noise_layers
-                            .data
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.sample_simd_scaled_raw(
-                                    x_translated,
-                                    z_translated,
-                                    noise_cache.get_by_index(
-                                        noise_data_index_cache[*index as usize] as usize,
-                                    ),
-                                )
-                            })
-                            .unwrap_or(Vec4::ZERO),
-                        FilterComparingTo::Spline { index } => terrain_noise_layers
-                            .splines
-                            .get(*index as usize)
-                            .map(|spline| {
-                                spline.sample_simd_raw(
-                                    noise_cache.get_by_index(
-                                        noise_spline_index_cache[*index as usize] as usize,
-                                    ),
-                                    x_translated,
-                                    z_translated,
-                                )
-                            })
-                            .unwrap_or(Vec4::ZERO),
-                        FilterComparingTo::Detail { index } => terrain_noise_layers
-                            .layers
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.layer.sample_simd_scaled_raw(
-                                    x_translated,
-                                    z_translated,
-                                    noise_cache.get_by_index(
-                                        noise_detail_index_cache[*index as usize] as usize,
-                                    ),
-                                )
-                            })
-                            .unwrap_or(Vec4::ZERO),
-                    };
-                    let initial_filter_strength = initial_filter.get_filter_simd(sample_filter(initial_filter));
-
-                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
-                        let filter_sample = filter.get_filter_simd(sample_filter(filter));
-                        
-                        match layer.filter_combinator {
-                            FilterCombinator::Max => acc.max(filter_sample),
-                            FilterCombinator::Min => acc.min(filter_sample),
-                            FilterCombinator::Multiply => acc * filter_sample,
-                            FilterCombinator::Sum => (acc + filter_sample).min(Vec4::splat(1.0)),
-                            FilterCombinator::SumUncapped => acc + filter_sample,
-                        }
-                    });
-
-                    layer_values *= calculated_filter_strength;
-                }
-
-                layer_heights += layer_values;
-            }
-
-            let final_heights = spline_heights + layer_heights;
-
-            // Store the results back into the heights array
-            heights[i] = final_heights.x;
-            heights[i + 1] = final_heights.y;
-            heights[i + 2] = final_heights.z;
-            heights[i + 3] = final_heights.w;
-        }
+        // Store the results back into the heights array
+        heights[i] = final_heights.x;
+        heights[i + 1] = final_heights.y;
+        heights[i + 2] = final_heights.z;
+        heights[i + 3] = final_heights.w;
     }
 
     // Process any remaining heights that aren't divisible by 4
@@ -650,87 +821,6 @@ pub(super) fn apply_noise_simd(
         let (x, z) = index_to_x_z(i, edge_points);
         let vertex_position = terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-        unsafe {
-            let spline_height = terrain_noise_layers.splines.iter().enumerate().fold(0.0, |acc, (j, layer)| {
-                acc + layer.sample(
-                    vertex_position.x,
-                    vertex_position.y,
-                    noise_cache.get_by_index(noise_spline_index_cache[j] as usize),
-                    lookup_curves,
-                )
-            });
-
-            let layer_height = terrain_noise_layers.layers.iter().enumerate().fold(0.0, |acc, (j, layer)| {
-                let mut layer_value = layer.layer.sample(
-                    vertex_position.x,
-                    vertex_position.y,
-                    noise_cache.get_by_index(noise_detail_index_cache[j] as usize),
-                );
-
-                if let Some(initial_filter) = layer.filter.first() {
-                    let sample_filter = |filter: &NoiseFilter| match &filter.compare_to {
-                        FilterComparingTo::ToSelf => layer_value / layer.layer.amplitude,
-                        FilterComparingTo::Data { index } => terrain_noise_layers
-                            .data
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.sample_scaled_raw(
-                                    vertex_position.x,
-                                    vertex_position.y,
-                                    noise_cache.get_by_index(
-                                        noise_data_index_cache[*index as usize] as usize,
-                                    ),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                        FilterComparingTo::Spline { index } => terrain_noise_layers
-                            .splines
-                            .get(*index as usize)
-                            .map(|spline| {
-                                spline.sample_raw(
-                                    vertex_position.x,
-                                    vertex_position.y,
-                                    noise_cache.get_by_index(
-                                        noise_spline_index_cache[*index as usize] as usize,
-                                    ),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                        FilterComparingTo::Detail { index } => terrain_noise_layers
-                            .layers
-                            .get(*index as usize)
-                            .map(|layer| {
-                                layer.layer.sample_scaled_raw(
-                                    vertex_position.x,
-                                    vertex_position.y,
-                                    noise_cache.get_by_index(
-                                        noise_detail_index_cache[*index as usize] as usize,
-                                    ),
-                                )
-                            })
-                            .unwrap_or(0.0),
-                    };
-                    let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
-
-                    let calculated_filter_strength = layer.filter.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
-                        let filter_sample = filter.get_filter(sample_filter(filter));
-                        
-                        match layer.filter_combinator {
-                            FilterCombinator::Max => acc.max(filter_sample),
-                            FilterCombinator::Min => acc.min(filter_sample),
-                            FilterCombinator::Multiply => acc * filter_sample,
-                            FilterCombinator::Sum => (acc + filter_sample).min(1.0),
-                            FilterCombinator::SumUncapped => acc + filter_sample,
-                        }
-                    });
-
-                    layer_value *= calculated_filter_strength;
-                }
-
-                acc + layer_value
-            });
-
-            *height = spline_height + layer_height;
-        }
+        *height = terrain_noise_layers.sample_position(noise_cache, noise_index_cache, vertex_position, lookup_curves);
     }
 }
