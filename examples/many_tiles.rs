@@ -83,12 +83,7 @@ fn main() {
                                     scaling: NoiseScaling::Normalized
                                 }
                             },
-                            filters: vec![NoiseFilter {
-                                condition: NoiseFilterCondition::Above(0.4),
-                                falloff: 0.1,
-                                falloff_easing_function: EasingFunction::CubicInOut,
-                                compare_to: FilterComparingTo::Spline { index: 0 },
-                            }],
+                            filters: vec![],
                             filter_combinator: FilterCombinator::Max
                         },
                         NoiseLayer {
@@ -131,7 +126,13 @@ fn main() {
                             filter_combinator: FilterCombinator::Max
                         },
                     ],
-                    ..default()
+                    filters: vec![NoiseFilter {
+                        condition: NoiseFilterCondition::Above(0.4),
+                        falloff: 0.1,
+                        falloff_easing_function: EasingFunction::CubicInOut,
+                        compare_to: FilterComparingTo::Spline { index: 0 },
+                    }],
+                    filter_combinator: FilterCombinator::Min
                 }
             ]
         }),
@@ -174,13 +175,22 @@ fn insert_rules(
             amplitude_curve: continentallness.clone(),
             frequency: 0.001,
             seed: 5,
-            domain_warp: vec![]
+            domain_warp: vec![],
+            filters: vec![],
+            filter_combinator: FilterCombinator::Min
         },
         TerrainNoiseSplineLayer {
             amplitude_curve: peaks_and_valleys.clone(),
             frequency: 0.005,
             seed: 6,
-            domain_warp: vec![]
+            domain_warp: vec![],
+            filters: vec![NoiseFilter {
+                condition: NoiseFilterCondition::Above(0.3),
+                falloff: 0.2,
+                falloff_easing_function: EasingFunction::SmoothStep,
+                compare_to: FilterComparingTo::Spline { index: 0 }
+            }],
+            filter_combinator: FilterCombinator::Min
         },
     ]);
 
@@ -412,13 +422,19 @@ impl EditorWindow for NoiseDebugWindow {
                 let noise = spline.sample(
                     translation.x,
                     translation.z,
+                    noise_settings,
+                    noise_cache,
+                    &noise_index_cache.data_index_cache,
+                    &noise_index_cache.spline_index_cache,
                     cached_noise,
                     lookup_curves,
                 );
 
+                let strength = calc_filter_strength(translation.xz(), &spline.filters, spline.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+
                 if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
                     ui.label(format!(
-                        "- {}: {noise:.3} ({noise_raw:.3})",
+                        "- {}: {noise:.3} (Noise: {noise_raw:.3}, Strength: {strength:.3})",
                         lookup_curve.name.as_ref().map_or("", |name| name.as_str())
                     ));
                 }

@@ -400,6 +400,7 @@ fn insert_texture_map(
 ) {
     let resolution = texture_settings.resolution();
     let texture_format = TextureFormat::Rgba8Unorm;
+    let size = texture_format.pixel_size() * resolution as usize * resolution as usize;
 
     query.iter().for_each(|entity| {
         let image = Image::new(
@@ -409,7 +410,7 @@ fn insert_texture_map(
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
-            vec![0; texture_format.pixel_size() * resolution as usize * resolution as usize],
+            vec![0; size],
             texture_format,
             RenderAssetUsages::all(),
         );

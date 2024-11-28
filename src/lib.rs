@@ -8,7 +8,7 @@ use bevy_asset::Assets;
 use bevy_math::{FloatExt, IVec2, Vec2, Vec3, Vec3Swizzles};
 use bevy_ecs::prelude::{any_with_component, resource_changed, AnyOf, Component, DetectChanges, Event, EventReader, EventWriter, Query, Res, ResMut, Resource, SystemSet, IntoSystemConfigs, ReflectResource};
 use bevy_transform::prelude::{GlobalTransform, TransformSystem};
-use bevy_log::{info, info_span};
+use bevy_log::info_span;
 use bevy_reflect::Reflect;
 use bevy_derive::Deref;
 

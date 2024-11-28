@@ -115,7 +115,10 @@ pub struct TerrainNoiseSplineLayer {
     /// Seed for the noise function.
     pub seed: u32,
     /// Applies domain warping to the noise layer.
-    pub domain_warp: Vec<DomainWarping>
+    pub domain_warp: Vec<DomainWarping>,
+
+    pub filters: Vec<NoiseFilter>,
+    pub filter_combinator: FilterCombinator
 }
 impl TerrainNoiseSplineLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude curve.
@@ -140,12 +143,20 @@ impl TerrainNoiseSplineLayer {
         &self,
         x: f32,
         z: f32,
+        noise_settings: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        data_noise_cache: &[u32],
+        spline_noise_cache: &[u32],
         noise: &Simplex,
         lookup_curves: &Assets<LookupCurve>,
     ) -> f32 {
-        lookup_curves
-            .get(&self.amplitude_curve)
-            .map_or(0.0, |curve| curve.lookup(self.sample_raw(x, z, noise)))
+        if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
+            let strength = calc_filter_strength(Vec2::new(x, z), &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+            
+            curve.lookup(self.sample_raw(x, z, noise)) * strength
+        } else {
+            0.0
+        }
     }
 
     /// Sample the spline layer excluding the curve.
@@ -172,11 +183,17 @@ impl TerrainNoiseSplineLayer {
         &self,
         x: Vec4,
         z: Vec4,
+        noise_settings: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        data_noise_cache: &[u32],
+        spline_noise_cache: &[u32],
         noise: &Simplex,
         lookup_curves: &Assets<LookupCurve>,
     ) -> Vec4 {
         // Fetch the lookup curve and apply it to all 4 noise values
         if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
+            let strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache);
+            
             let normalized_noise = self.sample_simd_raw(x, z, noise);
 
             Vec4::new(
@@ -184,7 +201,7 @@ impl TerrainNoiseSplineLayer {
                 curve.lookup(normalized_noise.y),
                 curve.lookup(normalized_noise.z),
                 curve.lookup(normalized_noise.w),
-            )
+            ) * strength
         } else {
             Vec4::ZERO // Default to 0 if the curve isn't found
         }
@@ -737,6 +754,10 @@ impl TerrainNoiseSettings {
                 acc + layer.sample(
                     pos.x,
                     pos.y,
+                    self,
+                    noise_cache,
+                    &noise_index_cache.data_index_cache,
+                    &noise_index_cache.spline_index_cache,
                     noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
                     lookup_curves,
                 )
@@ -763,6 +784,10 @@ impl TerrainNoiseSettings {
                 acc + layer.sample_simd(
                     x,
                     z,
+                    self,
+                    noise_cache,
+                    &noise_index_cache.data_index_cache,
+                    &noise_index_cache.spline_index_cache,
                     noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
                     lookup_curves,
                 )
