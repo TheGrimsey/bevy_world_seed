@@ -49,8 +49,6 @@ fn main() {
 
     app.add_plugins(TerrainPlugin {
         noise_settings: Some(TerrainNoiseSettings {
-            data: vec![],
-            splines: vec![],
             noise_groups: vec![
                 NoiseGroup {
                     layers: vec![NoiseLayer {
@@ -67,7 +65,8 @@ fn main() {
                     }],
                     ..default()
                 }
-            ]
+            ],
+            ..default()
         }),
         terrain_settings: TerrainSettings {
             tile_size_power: NonZeroU8::new(6).unwrap(),

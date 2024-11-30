@@ -409,25 +409,29 @@ pub fn calc_filter_strength(
                 FilterComparingTo::Data { index } => noise_settings
                     .data
                     .get(*index as usize)
-                    .map(|layer| {
+                    .map_or(0.0, |layer| {
                         layer.sample_scaled_raw(
                             pos.x,
                             pos.y,
                             noise_cache.get_by_index(data_noise_cache[*index as usize] as usize),
                         )
-                    })
-                    .unwrap_or(0.0),
+                    }),
                 FilterComparingTo::Spline { index } => noise_settings
                     .splines
                     .get(*index as usize)
-                    .map(|spline| {
+                    .map_or(0.0, |spline| {
                         spline.sample_raw(
                             pos.x,
                             pos.y,
                             noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
                         )
-                    })
-                    .unwrap_or(0.0),
+                    }),
+                FilterComparingTo::Biome { index } => noise_settings
+                    .biome
+                    .get(*index as usize)
+                    .map_or(0.0, |biome| {
+                        calc_filter_strength(pos, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache)
+                    }),
             };
             let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
     
@@ -466,25 +470,29 @@ fn calc_filter_strength_simd(
                 FilterComparingTo::Data { index } => noise_settings
                     .data
                     .get(*index as usize)
-                    .map(|layer| {
+                    .map_or(Vec4::ZERO, |layer| {
                         layer.sample_simd_scaled_raw(
                             x,
                             z,
                             noise_cache.get_by_index(data_noise_cache[*index as usize] as usize),
                         )
-                    })
-                    .unwrap_or(Vec4::ZERO),
+                    }),
                 FilterComparingTo::Spline { index } => noise_settings
                     .splines
                     .get(*index as usize)
-                    .map(|spline| {
+                    .map_or(Vec4::ZERO, |spline| {
                         spline.sample_simd_raw(
                             x,
                             z,
                             noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
                         )
-                    })
-                    .unwrap_or(Vec4::ZERO),
+                    }),   
+                FilterComparingTo::Biome { index } => noise_settings
+                    .biome
+                    .get(*index as usize)
+                    .map_or(Vec4::ZERO, |biome| {
+                        calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_cache, spline_noise_cache)
+                    }),
             };
             let initial_filter_strength = initial_filter.get_filter_simd(sample_filter(initial_filter));
     
@@ -621,6 +629,9 @@ pub enum FilterComparingTo {
     Spline {
         index: u32,
     },
+    Biome {
+        index: u32
+    }
 }
 impl Default for FilterComparingTo {
     fn default() -> Self {
@@ -725,10 +736,25 @@ impl Default for NoiseFilterCondition {
     }
 }
 
+/**
+ * A biome.
+ * 
+ * A collection of filters determining where a biome is placed.
+ */
+#[derive(Resource, Reflect, Clone, Default)]
+pub struct BiomeSettings {
+    pub filters: Vec<NoiseFilter>,
+    pub filter_combinator: FilterCombinator
+
+    // Biome flags?
+}
+
 /// Noise layers to be applied to Terrain tiles.
 #[derive(Resource, Reflect, Clone, Default)]
 #[reflect(Resource)]
 pub struct TerrainNoiseSettings {
+    pub biome: Vec<BiomeSettings>,
+
     /// Data noise.
     /// 
     /// Not applied to the world but can be used to for filters.
