@@ -619,7 +619,7 @@ impl NoiseGroup {
 
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Clone, PartialEq)]
+#[derive(Reflect, Clone, PartialEq, Debug)]
 #[reflect(Default)]
 pub enum FilterComparingTo {
     /// Sample from a data noise.
@@ -640,7 +640,7 @@ impl Default for FilterComparingTo {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Default, Clone, PartialEq)]
+#[derive(Reflect, Default, Clone, PartialEq, Debug)]
 #[reflect(Default)]
 pub struct NoiseFilter {
     pub condition: NoiseFilterCondition,
@@ -711,7 +711,7 @@ impl NoiseFilter {
 
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Default, Clone, Copy, PartialEq)]
+#[derive(Reflect, Default, Clone, Copy, PartialEq, Debug)]
 #[reflect(Default)]
 pub enum FilterCombinator {
     #[default]
@@ -723,7 +723,7 @@ pub enum FilterCombinator {
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Reflect, Clone, PartialEq)]
+#[derive(Reflect, Clone, PartialEq, Debug)]
 #[reflect(Default)]
 pub enum NoiseFilterCondition {
     Above(f32),
@@ -741,7 +741,7 @@ impl Default for NoiseFilterCondition {
  * 
  * A collection of filters determining where a biome is placed.
  */
-#[derive(Resource, Reflect, Clone, Default)]
+#[derive(Resource, Reflect, Clone, Default, Debug, PartialEq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BiomeSettings {
     pub filters: Vec<NoiseFilter>,
