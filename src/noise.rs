@@ -742,6 +742,7 @@ impl Default for NoiseFilterCondition {
  * A collection of filters determining where a biome is placed.
  */
 #[derive(Resource, Reflect, Clone, Default)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BiomeSettings {
     pub filters: Vec<NoiseFilter>,
     pub filter_combinator: FilterCombinator
