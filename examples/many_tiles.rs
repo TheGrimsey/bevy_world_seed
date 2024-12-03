@@ -60,25 +60,46 @@ fn main() {
                         NoiseLayer {
                             operation: LayerOperation::Noise {
                                 noise: LayerNoiseSettings {
-                                    amplitude: 16.0,
-                                    frequency: 0.005,
-                                    seed: 3,
+                                    amplitude: 128.0,
+                                    frequency: 0.002,
+                                    seed: 281139797,
                                     domain_warp: vec![DomainWarping {
-                                        amplitude: 25.0,
-                                        frequency: 0.01,
-                                        z_offset: 100.0
-                                    },
-                                    DomainWarping {
-                                        amplitude: 50.0,
-                                        frequency: 0.006,
-                                        z_offset: 50.0
-                                    },
-                                    DomainWarping {
-                                        amplitude: 60.0,
-                                        frequency: 0.004,
-                                        z_offset: 10.0
+                                        amplitude: 30.0,
+                                        frequency: 0.001,
+                                        z_offset: 3.55
                                     }],
-                                    scaling: NoiseScaling::Normalized
+                                    scaling: NoiseScaling::Ridged
+                                }
+                            },
+                            filters: vec![NoiseFilter {
+                                condition: NoiseFilterCondition::Above(0.9),
+                                falloff: 0.3,
+                                falloff_easing_function: EasingFunction::SmoothStep,
+                                compare_to: FilterComparingTo::Spline { index: 0 },
+                            }],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 64.0,
+                                    frequency: 0.002,
+                                    seed: 3,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Ridged
+                                },
+                            },
+                            filters: vec![],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 32.0,
+                                    frequency: 0.002,
+                                    seed: 891670187,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Ridged
                                 }
                             },
                             filters: vec![],
@@ -88,23 +109,10 @@ fn main() {
                             operation: LayerOperation::Noise {
                                 noise: LayerNoiseSettings {
                                     amplitude: 8.0,
-                                    frequency: 0.01,
-                                    seed: 1,
-                                    domain_warp: vec![],
-                                    scaling: NoiseScaling::Normalized
-                                }
-                            },
-                            filters: vec![],
-                            filter_combinator: FilterCombinator::Max
-                        },
-                        NoiseLayer {
-                            operation: LayerOperation::Noise {
-                                noise: LayerNoiseSettings {
-                                    amplitude: 4.0,
-                                    frequency: 0.02,
+                                    frequency: 0.006,
                                     seed: 2,
                                     domain_warp: vec![],
-                                    scaling: NoiseScaling::Normalized
+                                    scaling: NoiseScaling::Ridged
                                 }
                             },
                             filters: vec![],
@@ -113,11 +121,42 @@ fn main() {
                         NoiseLayer {
                             operation: LayerOperation::Noise {
                                 noise: LayerNoiseSettings {
-                                    amplitude: 2.0,
-                                    frequency: 0.04,
+                                    amplitude: 16.0,
+                                    frequency: 0.004,
                                     seed: 3,
                                     domain_warp: vec![],
-                                    scaling: NoiseScaling::Normalized
+                                    scaling: NoiseScaling::Ridged
+                                },
+                            },
+                            filters: vec![],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 128.0,
+                                    frequency: 0.0005,
+                                    seed: 3,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Ridged
+                                },
+                            },
+                            filters: vec![NoiseFilter {
+                                condition: NoiseFilterCondition::Above(0.8),
+                                falloff: 0.25,
+                                falloff_easing_function: EasingFunction::SmoothStep,
+                                compare_to: FilterComparingTo::Spline { index: 0 },
+                            }],
+                            filter_combinator: FilterCombinator::Max
+                        },
+                        NoiseLayer {
+                            operation: LayerOperation::Noise {
+                                noise: LayerNoiseSettings {
+                                    amplitude: 64.0,
+                                    frequency: 0.002,
+                                    seed: 3,
+                                    domain_warp: vec![],
+                                    scaling: NoiseScaling::Ridged
                                 },
                             },
                             filters: vec![],
@@ -125,13 +164,36 @@ fn main() {
                         },
                     ],
                     filters: vec![NoiseFilter {
-                        condition: NoiseFilterCondition::Above(0.4),
-                        falloff: 0.1,
-                        falloff_easing_function: EasingFunction::CubicInOut,
+                        condition: NoiseFilterCondition::Above(0.6),
+                        falloff: 0.15,
+                        falloff_easing_function: EasingFunction::SmoothStep,
                         compare_to: FilterComparingTo::Spline { index: 0 },
                     }],
                     filter_combinator: FilterCombinator::Min
                 }
+            ],
+            data: vec![
+                LayerNoiseSettings {
+                    amplitude: 1.0,
+                    frequency: 0.0003,
+                    seed: 3110758200,
+                    domain_warp: vec![],
+                    scaling: NoiseScaling::Unitized
+                },
+                LayerNoiseSettings {
+                    amplitude: 1.0,
+                    frequency: 0.0001,
+                    seed: 2400218420,
+                    domain_warp: vec![],
+                    scaling: NoiseScaling::Unitized
+                },
+                LayerNoiseSettings {
+                    amplitude: 1.0,
+                    frequency: 0.0001,
+                    seed: 1228950654,
+                    domain_warp: vec![],
+                    scaling: NoiseScaling::Unitized
+                },
             ],
             ..default()
         }),
@@ -172,7 +234,7 @@ fn insert_rules(
     terrain_noise_settings.splines.extend([
         TerrainNoiseSplineLayer {
             amplitude_curve: continentallness.clone(),
-            frequency: 0.001,
+            frequency: 0.0005,
             seed: 5,
             domain_warp: vec![],
             filters: vec![],
@@ -180,15 +242,29 @@ fn insert_rules(
         },
         TerrainNoiseSplineLayer {
             amplitude_curve: peaks_and_valleys.clone(),
-            frequency: 0.005,
-            seed: 6,
-            domain_warp: vec![],
-            filters: vec![NoiseFilter {
-                condition: NoiseFilterCondition::Above(0.3),
-                falloff: 0.2,
-                falloff_easing_function: EasingFunction::SmoothStep,
-                compare_to: FilterComparingTo::Spline { index: 0 }
-            }],
+            frequency: 0.002,
+            seed: 14085,
+            domain_warp: vec![
+                DomainWarping {
+                    amplitude: 40.0,
+                    frequency: 0.009,
+                    z_offset: 93.0
+                }
+            ],
+            filters: vec![
+                NoiseFilter {
+                    condition: NoiseFilterCondition::Above(0.3),
+                    falloff: 0.2,
+                    falloff_easing_function: EasingFunction::SmoothStep,
+                    compare_to: FilterComparingTo::Spline { index: 0 }
+                },
+                NoiseFilter {
+                    condition: NoiseFilterCondition::Above(1.0),
+                    falloff: 1.0,
+                    falloff_easing_function: EasingFunction::SmoothStep,
+                    compare_to: FilterComparingTo::Data { index: 0 }
+                }
+            ],
             filter_combinator: FilterCombinator::Min
         },
     ]);
@@ -327,7 +403,7 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
         ..default()
     });
 
-    let terrain_range = 5;
+    let terrain_range = 15;
 
     for x in -terrain_range..terrain_range {
         for z in -terrain_range..terrain_range {
@@ -394,11 +470,15 @@ impl EditorWindow for NoiseDebugWindow {
 
             let translation = transform.translation();
 
+            let mut data = Vec::with_capacity(noise_settings.data.len());
+            noise_settings.sample_data(noise_cache, noise_index_cache, translation.xz(), &mut data);
+
             let height = noise_settings.sample_position(
                 noise_cache,
                 noise_index_cache,
                 translation.xz(),
                 lookup_curves,
+                &data
             );
             ui.heading(format!("Height: {height}"));
 
@@ -423,13 +503,13 @@ impl EditorWindow for NoiseDebugWindow {
                     translation.z,
                     noise_settings,
                     noise_cache,
-                    &noise_index_cache.data_index_cache,
+                    &data,
                     &noise_index_cache.spline_index_cache,
                     cached_noise,
                     lookup_curves,
                 );
 
-                let strength = calc_filter_strength(translation.xz(), &spline.filters, spline.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+                let strength = calc_filter_strength(translation.xz(), &spline.filters, spline.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
 
                 if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
                     ui.label(format!(
@@ -447,18 +527,18 @@ impl EditorWindow for NoiseDebugWindow {
                 let noise = group.sample(
                     noise_settings,
                     noise_cache,
-                    &noise_index_cache.data_index_cache,
+                    &data,
                     &noise_index_cache.spline_index_cache,
                     group_noises,
                     translation.xz()
                 );
 
-                let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+                let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
 
                 egui::CollapsingHeader::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).id_source(format!("group_{i}")).show(ui, |ui| {
                     unsafe {
                         for (i,layer) in group.layers.iter().enumerate() {
-                            let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &noise_index_cache.data_index_cache, &noise_index_cache.spline_index_cache);
+                            let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
                             
                             match &layer.operation {
                                 LayerOperation::Noise { noise } => {
