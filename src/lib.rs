@@ -29,7 +29,7 @@ use modifiers::{
     ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     TileToModifierMapping,
 };
-use noise::{apply_noise_simd, LayerNoiseSettings, NoiseCache, NoiseIndexCache, TerrainNoiseSettings};
+use noise::{apply_noise_simd, LayerNoiseSettings, NoiseCache, NoiseIndexCache, TerrainNoiseSettings, TileBiomes};
 use snap_to_terrain::TerrainSnapToTerrainPlugin;
 use terrain::{insert_components, update_tiling, Holes, Terrain, TileToTerrain};
 use utils::{distance_squared_to_line_segment, index_to_x_z};
@@ -127,7 +127,9 @@ impl Plugin for TerrainPlugin {
         app.init_resource::<TileToModifierMapping>()
             .init_resource::<TileToTerrain>()
             .init_resource::<NoiseCache>()
-            .init_resource::<NoiseIndexCache>()
+            .init_resource::<NoiseIndexCache>();
+
+        app
             .register_type::<TerrainSplineShape>()
             .register_type::<TerrainSplineCached>()
             .register_type::<ModifierTileAabb>()
@@ -147,7 +149,8 @@ impl Plugin for TerrainPlugin {
 
         {
             app.register_type::<LayerNoiseSettings>()
-                .register_type::<TerrainNoiseSettings>();
+                .register_type::<TerrainNoiseSettings>()
+                .register_type::<TileBiomes>();
         }
 
         app.init_resource::<TerrainHeightRebuildQueue>();
@@ -234,7 +237,7 @@ fn update_terrain_heights(
         Option<&ModifierFalloffProperty>,
         Option<&ModifierStrengthLimitProperty>,
     )>,
-    mut heights: Query<(&mut Heights, &mut Holes)>,
+    mut terrain_tile_query: Query<(&mut Heights, &mut Holes, &mut TileBiomes)>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -290,8 +293,8 @@ fn update_terrain_heights(
         let shape_modifiers = tile_to_modifier.shape.get(&tile);
         let splines = tile_to_modifier.splines.get(&tile);
 
-        let mut iter = heights.iter_many_mut(tiles.iter());
-        while let Some((mut heights, mut holes)) = iter.fetch_next() {
+        let mut iter = terrain_tile_query.iter_many_mut(tiles.iter());
+        while let Some((mut heights, mut holes, mut biomes)) = iter.fetch_next() {
             // Clear heights.
             heights.0.fill(0.0);
             holes.0.clear();
@@ -299,7 +302,7 @@ fn update_terrain_heights(
             // First, set by noise.
             if let Some(terrain_noise_layers) = terrain_noise_settings.as_ref() {
                 let _span = info_span!("Apply noise").entered();
-                apply_noise_simd(
+                *biomes = apply_noise_simd(
                     &mut heights.0,
                     &terrain_settings,
                     terrain_translation,

@@ -10,7 +10,7 @@ use bevy_utils::HashMap;
 use fixedbitset::FixedBitSet;
 
 use crate::{
-    feature_placement::SpawnedFeatures, utils::index_to_x_z, Heights, RebuildTile, TerrainSettings,
+    feature_placement::SpawnedFeatures, noise::TileBiomes, utils::index_to_x_z, Heights, RebuildTile, TerrainSettings
 };
 
 /// Bitset marking which points are holes.
@@ -117,6 +117,7 @@ pub(super) fn insert_components(
             Heights(vec![0.0; heights].into_boxed_slice()),
             Holes(FixedBitSet::with_capacity(heights)),
             SpawnedFeatures::default(),
+            TileBiomes::default()
         ));
     });
 }

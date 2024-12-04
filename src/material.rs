@@ -5,7 +5,7 @@ use bevy_asset::{load_internal_asset, Asset, AssetApp, Assets, Handle};
 use bevy_log::{info, info_span};
 use bevy_math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4};
 use bevy_pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial};
-use bevy_ecs::prelude::{Commands, Component, Entity, EventReader, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent, ReflectResource};
+use bevy_ecs::prelude::{Commands, Component, Entity, EventReader, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent, ReflectResource, Local, DetectChanges};
 use bevy_render::{
     primitives::Aabb,
     render_asset::RenderAssetUsages,
@@ -17,16 +17,10 @@ use bevy_transform::prelude::GlobalTransform;
 use bevy_reflect::{Reflect, prelude::ReflectDefault};
 
 use crate::{
-    distance_squared_to_line_segment,
-    easing::EasingFunction,
-    meshing::TerrainMeshRebuilt,
-    modifiers::{
+    distance_squared_to_line_segment, easing::EasingFunction, meshing::TerrainMeshRebuilt, modifiers::{
         ModifierFalloffProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
         TileToModifierMapping,
-    },
-    terrain::{Terrain, TileToTerrain},
-    utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z, index_to_x_z_simd},
-    Heights, TerrainSets, TerrainSettings,
+    }, noise::{NoiseCache, NoiseIndexCache, StrengthCombinator, TerrainNoiseSettings, TileBiomes}, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z, index_to_x_z_simd}, Heights, TerrainSets, TerrainSettings
 };
 
 pub const TERRAIN_SHADER_HANDLE: Handle<Shader> =
@@ -171,9 +165,27 @@ pub enum TexturingRuleEvaluator {
         /// Texture strength will linearly reduce for this many radians.
         falloff_radians: f32,
     },
+    /// Applies a texture when in the biome.
+    /// 
+    /// Using this rule will cause noise sampling when generating. This may slow down updating textures.
+    InBiome {
+        biome: u32
+    }
 }
 impl TexturingRuleEvaluator {
-    pub fn can_apply_to_tile(&self, min: f32, max: f32) -> bool {
+    pub fn needs_noise(&self) -> bool {
+        match self {
+            TexturingRuleEvaluator::Above { .. }
+            | TexturingRuleEvaluator::Below { .. }
+            | TexturingRuleEvaluator::Between { .. }
+            | TexturingRuleEvaluator::AngleGreaterThan { .. }
+            | TexturingRuleEvaluator::AngleLessThan { .. }
+            | TexturingRuleEvaluator::AngleBetween { .. } => false,
+            TexturingRuleEvaluator::InBiome { .. } => true,
+        }
+    }
+
+    pub fn can_apply_to_tile(&self, min: f32, max: f32, tile_biomes: &TileBiomes) -> bool {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
                 max >= (*height - *falloff)
@@ -188,10 +200,14 @@ impl TexturingRuleEvaluator {
             TexturingRuleEvaluator::AngleGreaterThan { .. } => true,
             TexturingRuleEvaluator::AngleLessThan { .. } => true,
             TexturingRuleEvaluator::AngleBetween { .. } => true,
+            TexturingRuleEvaluator::InBiome { biome } => {
+                // Anything below 1 / 255 means it's rounded to 0.
+                tile_biomes.0.get(*biome as usize).is_some_and(|val| *val >= (1.0 / 255.0))
+            },
         }
     }
 
-    pub fn eval_simd(&self, height_at_position: Vec4, angle_at_position: Vec4) -> Vec4 {
+    pub fn eval_simd(&self, height_at_position: Vec4, angle_at_position: Vec4, biomes: &[Vec4]) -> Vec4 {
         match self {
             TexturingRuleEvaluator::Above { height, falloff } => {
                 Vec4::ONE - ((Vec4::splat(*height) - height_at_position).max(Vec4::ZERO) / falloff.max(f32::EPSILON))
@@ -244,13 +260,18 @@ impl TexturingRuleEvaluator {
 
                 strength_below.min(strength_above)
             }
+            TexturingRuleEvaluator::InBiome { biome } => {
+                biomes.get(*biome as usize).cloned().unwrap_or(Vec4::ZERO)
+            },
         }
     }
 }
 
 #[derive(Reflect)]
 pub struct TexturingRule {
-    pub evaluator: TexturingRuleEvaluator,
+    pub evaluators: Vec<TexturingRuleEvaluator>,
+    pub evaulator_combinator: StrengthCombinator,
+
     /// The texture to apply with this rule.
     pub texture: Handle<Image>,
     pub normal_texture: Option<Handle<Image>>,
@@ -267,7 +288,6 @@ pub struct GlobalTexturingRules {
     pub rules: Vec<TexturingRule>,
 }
 
-// This struct defines the data that will be passed to your shader
 #[derive(Asset, AsBindGroup, Default, Debug, Clone, Reflect)]
 #[reflect(Default, Debug)]
 pub(super) struct TerrainMaterial {
@@ -473,8 +493,12 @@ fn update_terrain_texture_maps(
         &Handle<Mesh>,
         &Terrain,
         &Aabb,
+        &TileBiomes
     )>,
-    texture_settings: Res<TerrainTexturingSettings>,
+    texturing_settings: (
+        Res<TerrainTexturingSettings>,
+        Res<GlobalTexturingRules>,
+    ),
     terrain_settings: Res<TerrainSettings>,
     tile_to_modifier: Res<TileToModifierMapping>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -483,8 +507,19 @@ fn update_terrain_texture_maps(
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
-    texturing_rules: Res<GlobalTexturingRules>,
+    noise_resources: (
+        Res<TerrainNoiseSettings>,
+        Res<NoiseCache>,
+        Res<NoiseIndexCache>
+    ), 
+    mut needs_noise: Local<bool>,
+    mut data_samples: Local<Vec<Vec4>>,
+    mut biome_samples: Local<Vec<Vec4>>
 ) {
+    if texturing_settings.1.is_changed() {
+        *needs_noise = texturing_settings.1.rules.iter().any(|rule| rule.evaluators.iter().any(|evaulator| evaulator.needs_noise()));
+    }
+
     for TerrainMeshRebuilt(tile) in event_reader.read() {
         if !tile_generate_queue.0.contains(tile) {
             tile_generate_queue.0.push(*tile);
@@ -496,14 +531,14 @@ fn update_terrain_texture_maps(
     }
 
     let tile_size = terrain_settings.tile_size();
-    let resolution = texture_settings.resolution();
+    let resolution = texturing_settings.0.resolution();
     let scale = tile_size / resolution as f32;
     let vertex_scale = (terrain_settings.edge_points - 1) as f32 / resolution as f32;
     let inv_tile_size_scale = scale * (7.0 / tile_size);
 
     let tiles_to_generate = tile_generate_queue
         .count()
-        .min(texture_settings.max_tile_updates_per_frame.get() as usize);
+        .min(texturing_settings.0.max_tile_updates_per_frame.get() as usize);
 
     tiles_query
         .iter_many(
@@ -513,7 +548,7 @@ fn update_terrain_texture_maps(
                 .filter_map(|tile| tile_to_terrain.0.get(&tile))
                 .flatten(),
         )
-        .for_each(|(heights, material, mesh, terrain_coordinate, aabb)| {
+        .for_each(|(heights, material, mesh, terrain_coordinate, aabb, tile_biomes)| {
             let Some(material) = materials.get_mut(material) else {
                 return;
             };
@@ -530,7 +565,7 @@ fn update_terrain_texture_maps(
             let terrain_translation =
                 (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
 
-            if !texturing_rules.rules.is_empty() {
+            if !texturing_settings.1.rules.is_empty() {
                 let _span = info_span!("Apply global texturing rules.").entered();
 
                 let normals = mesh
@@ -539,11 +574,15 @@ fn update_terrain_texture_maps(
                     .as_float3()
                     .unwrap();
 
-                    let min = aabb.center.y - aabb.half_extents.y;
-                    let max = aabb.center.y + aabb.half_extents.y;
+                let min = aabb.center.y - aabb.half_extents.y;
+                let max = aabb.center.y + aabb.half_extents.y;
 
-                for rule in texturing_rules.rules.iter() {
-                    if !rule.evaluator.can_apply_to_tile(min, max) {
+                for rule in texturing_settings.1.rules.iter() {
+                    
+                    if (
+                        matches!(rule.evaulator_combinator, StrengthCombinator::Min | StrengthCombinator::Multiply) && !rule.evaluators.iter().all(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
+                        || !rule.evaluators.iter().any(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
+                    ) {
                         continue;
                     }
 
@@ -554,8 +593,11 @@ fn update_terrain_texture_maps(
                         tile_size,
                     ) else {
                         info!("Hit max texture channels.");
-                        return;
+                        continue;
                     };
+                    
+                    let needs_noise = *needs_noise && rule.evaluators.iter().any(|evaluator| evaluator.needs_noise()); 
+
                     for (i, val) in texture.data.chunks_exact_mut(16).enumerate() {
                         let true_i = (i * 4) as u32;
                         let (x, z) = index_to_x_z_simd(UVec4::new(true_i, true_i + 1, true_i + 2, true_i + 3), resolution);
@@ -574,7 +616,16 @@ fn update_terrain_texture_maps(
                         let local_x = x_f.fract();
                         let local_z = z_f.fract();
 
-                        // TODO: We are doing this redundantly for each rule, where a single rule can only use one of these.
+                        if needs_noise {
+                            let world_x = x_f + Vec4::splat(terrain_translation.x);
+                            let world_z = z_f + Vec4::splat(terrain_translation.y);
+
+                            data_samples.clear();
+                            noise_resources.0.sample_data_simd(&noise_resources.1, &noise_resources.2, world_x, world_z, &mut data_samples);
+
+                            biome_samples.clear();
+                            noise_resources.0.sample_biomes_simd(&noise_resources.1, &noise_resources.2, world_x, world_z, &data_samples, &mut biome_samples);
+                        }
 
                         // Skip the bounds checks.
                         let height_at_position = unsafe {
@@ -652,7 +703,17 @@ fn update_terrain_texture_maps(
                             )
                         };
 
-                        let strength = rule.evaluator.eval_simd(height_at_position, normal_angle);
+                        let strength = if let Some(evaluator) = rule.evaluators.first() {
+                            let initial_strength = evaluator.eval_simd(height_at_position, normal_angle, &biome_samples);
+
+                            rule.evaluators.iter().skip(1).fold(initial_strength, |acc, filter| {
+                                let eval_sample = filter.eval_simd(height_at_position, normal_angle, &biome_samples);
+                            
+                                rule.evaulator_combinator.combine_simd(acc, eval_sample)
+                            })
+                        } else {
+                            Vec4::ONE
+                        };
 
                         // Apply texture.
                         apply_texture(&mut val[0..4], texture_channel, strength.x);

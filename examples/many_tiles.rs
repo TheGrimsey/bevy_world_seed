@@ -34,7 +34,7 @@ use bevy_world_seed::{
     },
     meshing::TerrainMeshRebuildQueue,
     noise::{
-        calc_filter_strength, DomainWarping, FilterCombinator, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, TerrainNoiseSettings, TerrainNoiseSplineLayer
+        calc_filter_strength, BiomeSettings, DomainWarping, StrengthCombinator, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, TerrainNoiseSettings, TerrainNoiseSplineLayer
     },
     terrain::{Terrain, TileToTerrain},
     RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
@@ -77,7 +77,7 @@ fn main() {
                                 falloff_easing_function: EasingFunction::SmoothStep,
                                 compare_to: FilterComparingTo::Spline { index: 0 },
                             }],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -90,7 +90,7 @@ fn main() {
                                 },
                             },
                             filters: vec![],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -103,7 +103,7 @@ fn main() {
                                 }
                             },
                             filters: vec![],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -116,7 +116,7 @@ fn main() {
                                 }
                             },
                             filters: vec![],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -129,7 +129,7 @@ fn main() {
                                 },
                             },
                             filters: vec![],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -147,7 +147,7 @@ fn main() {
                                 falloff_easing_function: EasingFunction::SmoothStep,
                                 compare_to: FilterComparingTo::Spline { index: 0 },
                             }],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                         NoiseLayer {
                             operation: LayerOperation::Noise {
@@ -160,7 +160,7 @@ fn main() {
                                 },
                             },
                             filters: vec![],
-                            filter_combinator: FilterCombinator::Max
+                            filter_combinator: StrengthCombinator::Max
                         },
                     ],
                     filters: vec![NoiseFilter {
@@ -169,7 +169,7 @@ fn main() {
                         falloff_easing_function: EasingFunction::SmoothStep,
                         compare_to: FilterComparingTo::Spline { index: 0 },
                     }],
-                    filter_combinator: FilterCombinator::Min
+                    filter_combinator: StrengthCombinator::Min
                 }
             ],
             data: vec![
@@ -194,6 +194,29 @@ fn main() {
                     domain_warp: vec![],
                     scaling: NoiseScaling::Unitized
                 },
+            ],
+            biome: vec![
+                BiomeSettings {
+                    filters: vec![NoiseFilter {
+                        condition: NoiseFilterCondition::Above(0.5),
+                        falloff: 0.25,
+                        falloff_easing_function: EasingFunction::SmoothStep,
+                        compare_to: FilterComparingTo::Data { index: 0 }
+                    },
+                    NoiseFilter {
+                        condition: NoiseFilterCondition::Above(0.5),
+                        falloff: 0.25,
+                        falloff_easing_function: EasingFunction::SmoothStep,
+                        compare_to: FilterComparingTo::Data { index: 1 }
+                    },
+                    NoiseFilter {
+                        condition: NoiseFilterCondition::Above(0.5),
+                        falloff: 0.25,
+                        falloff_easing_function: EasingFunction::SmoothStep,
+                        compare_to: FilterComparingTo::Data { index: 2 }
+                    }],
+                    filter_combinator: StrengthCombinator::Min
+                }
             ],
             ..default()
         }),
@@ -238,7 +261,7 @@ fn insert_rules(
             seed: 5,
             domain_warp: vec![],
             filters: vec![],
-            filter_combinator: FilterCombinator::Min
+            filter_combinator: StrengthCombinator::Min
         },
         TerrainNoiseSplineLayer {
             amplitude_curve: peaks_and_valleys.clone(),
@@ -265,7 +288,7 @@ fn insert_rules(
                     compare_to: FilterComparingTo::Data { index: 0 }
                 }
             ],
-            filter_combinator: FilterCombinator::Min
+            filter_combinator: StrengthCombinator::Min
         },
     ]);
 
@@ -290,19 +313,21 @@ fn insert_rules(
 
     texturing_rules.rules.extend([
         TexturingRule {
-            evaluator: TexturingRuleEvaluator::AngleGreaterThan {
+            evaluators: vec![TexturingRuleEvaluator::AngleGreaterThan {
                 angle_radians: 40.0_f32.to_radians(),
                 falloff_radians: 2.5_f32.to_radians(),
-            },
+            }],
+            evaulator_combinator: StrengthCombinator::Min,
             texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
             normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
             units_per_texture: 4.0,
         },
         TexturingRule {
-            evaluator: TexturingRuleEvaluator::AngleLessThan {
+            evaluators: vec![TexturingRuleEvaluator::AngleLessThan {
                 angle_radians: 40.0_f32.to_radians(),
                 falloff_radians: 2.5_f32.to_radians(),
-            },
+            }],
+            evaulator_combinator: StrengthCombinator::Min,
             texture: asset_server.load("textures/brown_mud_leaves.dds"),
             normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
             units_per_texture: 4.0,
@@ -478,7 +503,8 @@ impl EditorWindow for NoiseDebugWindow {
                 noise_index_cache,
                 translation.xz(),
                 lookup_curves,
-                &data
+                &data,
+                &[]
             );
             ui.heading(format!("Height: {height}"));
 
@@ -504,12 +530,13 @@ impl EditorWindow for NoiseDebugWindow {
                     noise_settings,
                     noise_cache,
                     &data,
+                    &[],
                     &noise_index_cache.spline_index_cache,
                     cached_noise,
                     lookup_curves,
                 );
 
-                let strength = calc_filter_strength(translation.xz(), &spline.filters, spline.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
+                let strength = calc_filter_strength(translation.xz(), &spline.filters, spline.filter_combinator, noise_settings, noise_cache, &data, &[], &noise_index_cache.spline_index_cache);
 
                 if let Some(lookup_curve) = lookup_curves.get(&spline.amplitude_curve) {
                     ui.label(format!(
@@ -528,17 +555,18 @@ impl EditorWindow for NoiseDebugWindow {
                     noise_settings,
                     noise_cache,
                     &data,
+                    &[],
                     &noise_index_cache.spline_index_cache,
                     group_noises,
                     translation.xz()
                 );
 
-                let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
+                let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &data, &[], &noise_index_cache.spline_index_cache);
 
                 egui::CollapsingHeader::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).id_source(format!("group_{i}")).show(ui, |ui| {
                     unsafe {
                         for (i,layer) in group.layers.iter().enumerate() {
-                            let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &data, &noise_index_cache.spline_index_cache);
+                            let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &data, &[], &noise_index_cache.spline_index_cache);
                             
                             match &layer.operation {
                                 LayerOperation::Noise { noise } => {

@@ -26,7 +26,7 @@ use bevy_world_seed::{
         ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle,
         TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
     },
-    noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, TerrainNoiseSettings},
+    noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, StrengthCombinator, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
     terrain::Terrain,
     TerrainPlugin, TerrainSettings,
@@ -82,20 +82,22 @@ fn insert_texturing_rules(
     asset_server: Res<AssetServer>,
 ) {
     texturing_rules.rules.push(TexturingRule {
-        evaluator: TexturingRuleEvaluator::AngleGreaterThan {
+        evaluators: vec![TexturingRuleEvaluator::AngleGreaterThan {
             angle_radians: 30.0_f32.to_radians(),
             falloff_radians: 2.5_f32.to_radians(),
-        },
+        }],
+        evaulator_combinator: StrengthCombinator::Min,
         texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
         normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
         units_per_texture: 4.0,
     });
 
     texturing_rules.rules.push(TexturingRule {
-        evaluator: TexturingRuleEvaluator::AngleLessThan {
+        evaluators: vec![TexturingRuleEvaluator::AngleLessThan {
             angle_radians: 30.0_f32.to_radians(),
             falloff_radians: 2.5_f32.to_radians(),
-        },
+        }],
+        evaulator_combinator: StrengthCombinator::Min,
         texture: asset_server.load("textures/brown_mud_leaves.dds"),
         normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
         units_per_texture: 4.0,

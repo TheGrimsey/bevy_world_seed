@@ -32,7 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 height: 10.0,
                 falloff: 1.0,
             }
-            .eval_simd(Vec4::splat(9.5), Vec4::splat(0.0))
+            .eval_simd(Vec4::splat(9.5), Vec4::splat(0.0), &[])
         }))
     });
 }

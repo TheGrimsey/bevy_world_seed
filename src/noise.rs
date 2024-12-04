@@ -4,7 +4,7 @@ use bevy_log::info;
 use ::noise::{NoiseFn, Simplex};
 use bevy_asset::{Assets, Handle};
 use bevy_math::{UVec4, Vec2, Vec4};
-use bevy_ecs::prelude::{ReflectResource, Resource};
+use bevy_ecs::prelude::{ReflectResource, Resource, Component, ReflectComponent};
 use bevy_reflect::{prelude::ReflectDefault, Reflect};
 use bevy_lookup_curve::LookupCurve;
 
@@ -121,7 +121,7 @@ pub struct TerrainNoiseSplineLayer {
     pub domain_warp: Vec<DomainWarping>,
 
     pub filters: Vec<NoiseFilter>,
-    pub filter_combinator: FilterCombinator
+    pub filter_combinator: StrengthCombinator
 }
 impl TerrainNoiseSplineLayer {
     /// Sample noise at the x & z coordinates WITHOUT amplitude curve.
@@ -152,12 +152,13 @@ impl TerrainNoiseSplineLayer {
         noise_settings: &TerrainNoiseSettings,
         noise_cache: &NoiseCache,
         data_noise_values: &[f32],
+        biome_values: &[f32],
         spline_noise_cache: &[u32],
         noise: &Simplex,
         lookup_curves: &Assets<LookupCurve>,
     ) -> f32 {
         if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
-            let strength = calc_filter_strength(Vec2::new(x, z), &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+            let strength = calc_filter_strength(Vec2::new(x, z), &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
             
             curve.lookup(self.sample_raw(x, z, noise)) * strength
         } else {
@@ -195,13 +196,14 @@ impl TerrainNoiseSplineLayer {
         noise_settings: &TerrainNoiseSettings,
         noise_cache: &NoiseCache,
         data_noise_values: &[Vec4],
+        biome_values: &[Vec4],
         spline_noise_cache: &[u32],
         noise: &Simplex,
         lookup_curves: &Assets<LookupCurve>,
     ) -> Vec4 {
         // Fetch the lookup curve and apply it to all 4 noise values
         if let Some(curve) = lookup_curves.get(&self.amplitude_curve) {
-            let strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+            let strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
             
             let normalized_noise = self.sample_simd_raw(x, z, noise);
 
@@ -406,16 +408,21 @@ pub struct NoiseLayer {
     pub operation: LayerOperation,
 
     pub filters: Vec<NoiseFilter>,
-    pub filter_combinator: FilterCombinator
+    pub filter_combinator: StrengthCombinator
 }
+
+#[derive(Component, Reflect, Default, Clone, PartialEq)]
+#[reflect(Component)]
+pub struct TileBiomes(pub Vec<f32>);
 
 pub fn calc_filter_strength(
     pos: Vec2,
     filters: &[NoiseFilter],
-    combinator: FilterCombinator,
+    combinator: StrengthCombinator,
     noise_settings: &TerrainNoiseSettings,
     noise_cache: &NoiseCache,
     data_noise_values: &[f32],
+    biome_values: &[f32],
     spline_noise_cache: &[u32]
 ) -> f32 {
     if let Some(initial_filter) = filters.first() {
@@ -435,25 +442,23 @@ pub fn calc_filter_strength(
                             noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
                         )
                     }),
-                FilterComparingTo::Biome { index } => noise_settings
-                    .biome
-                    .get(*index as usize)
-                    .map_or(0.0, |biome| {
-                        calc_filter_strength(pos, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache)
-                    }),
+                FilterComparingTo::Biome { index } => {
+                    biome_values.get(*index as usize).cloned().unwrap_or_else(||
+                        noise_settings
+                            .biome
+                            .get(*index as usize)
+                            .map_or(0.0, |biome| {
+                                calc_filter_strength(pos, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache)
+                            })
+                    )
+                }
             };
             let initial_filter_strength = initial_filter.get_filter(sample_filter(initial_filter));
     
             let calculated_filter_strength = filters.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
                 let filter_sample = filter.get_filter(sample_filter(filter));
                 
-                match combinator {
-                    FilterCombinator::Max => acc.max(filter_sample),
-                    FilterCombinator::Min => acc.min(filter_sample),
-                    FilterCombinator::Multiply => acc * filter_sample,
-                    FilterCombinator::Sum => (acc + filter_sample).min(1.0),
-                    FilterCombinator::SumUncapped => acc + filter_sample,
-                }
+                combinator.combine(acc, filter_sample)
             });
     
             calculated_filter_strength
@@ -467,10 +472,11 @@ fn calc_filter_strength_simd(
     x: Vec4,
     z: Vec4,
     filters: &[NoiseFilter],
-    combinator: FilterCombinator,
+    combinator: StrengthCombinator,
     noise_settings: &TerrainNoiseSettings,
     noise_cache: &NoiseCache,
     data_noise_values: &[Vec4],
+    biome_values: &[Vec4],
     spline_noise_cache: &[u32]
 ) -> Vec4 {
     if let Some(initial_filter) = filters.first() {
@@ -490,25 +496,21 @@ fn calc_filter_strength_simd(
                             noise_cache.get_by_index(spline_noise_cache[*index as usize] as usize),
                         )
                     }),   
-                FilterComparingTo::Biome { index } => noise_settings
-                    .biome
-                    .get(*index as usize)
-                    .map_or(Vec4::ZERO, |biome| {
-                        calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache)
-                    }),
+                FilterComparingTo::Biome { index } => biome_values.get(*index as usize).cloned().unwrap_or_else(||
+                    noise_settings
+                        .biome
+                        .get(*index as usize)
+                        .map_or(Vec4::ZERO, |biome| {
+                            calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache)
+                        })
+                )
             };
             let initial_filter_strength = initial_filter.get_filter_simd(sample_filter(initial_filter));
     
             let calculated_filter_strength = filters.iter().skip(1).fold(initial_filter_strength, |acc, filter| {
                 let filter_sample = filter.get_filter_simd(sample_filter(filter));
                 
-                match combinator {
-                    FilterCombinator::Max => acc.max(filter_sample),
-                    FilterCombinator::Min => acc.min(filter_sample),
-                    FilterCombinator::Multiply => acc * filter_sample,
-                    FilterCombinator::Sum => (acc + filter_sample).min(Vec4::ZERO),
-                    FilterCombinator::SumUncapped => acc + filter_sample,
-                }
+                combinator.combine_simd(acc, filter_sample)
             });
     
             calculated_filter_strength
@@ -531,7 +533,7 @@ pub struct NoiseGroup {
 
     /// Filter this detail layer to only apply during certain conditions.
     pub filters: Vec<NoiseFilter>,
-    pub filter_combinator: FilterCombinator
+    pub filter_combinator: StrengthCombinator
 }
 impl NoiseGroup {
     pub fn sample(
@@ -539,18 +541,19 @@ impl NoiseGroup {
         noise_settings: &TerrainNoiseSettings,
         noise_cache: &NoiseCache,
         data_noise_values: &[f32],
+        biome_values: &[f32],
         spline_noise_cache: &[u32],
         layer_noise_cache: &[u32],
         pos: Vec2,
     ) -> f32 {
-        let group_strength = calc_filter_strength(pos, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+        let group_strength = calc_filter_strength(pos, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
         if group_strength <= f32::EPSILON {
             return 0.0;
         }
 
         unsafe {
             let group_height = self.layers.iter().enumerate().fold(0.0, |acc, (i, layer)| {
-                let layer_strength = calc_filter_strength(pos, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+                let layer_strength = calc_filter_strength(pos, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
     
                 if layer_strength > f32::EPSILON {
                     let layer_value = match &layer.operation {
@@ -581,19 +584,20 @@ impl NoiseGroup {
         noise_settings: &TerrainNoiseSettings,
         noise_cache: &NoiseCache,
         data_noise_values: &[Vec4],
+        biome_values: &[Vec4],
         spline_noise_cache: &[u32],
         layer_noise_cache: &[u32],
         x: Vec4,
         z: Vec4
     ) -> Vec4 {
-        let group_strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+        let group_strength = calc_filter_strength_simd(x, z, &self.filters, self.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
         if group_strength.cmple(Vec4::splat(f32::EPSILON)).all() {
             return Vec4::ZERO;
         }
 
         unsafe {
             let group_height = self.layers.iter().enumerate().fold(Vec4::ZERO, |acc, (i, layer)| {
-                let layer_strength = calc_filter_strength_simd(x, z, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_values, spline_noise_cache);
+                let layer_strength = calc_filter_strength_simd(x, z, &layer.filters, layer.filter_combinator, noise_settings, noise_cache, data_noise_values, biome_values, spline_noise_cache);
     
                 if layer_strength.cmpge(Vec4::splat(f32::EPSILON)).any() {
                     let layer_value = match &layer.operation {
@@ -716,13 +720,36 @@ impl NoiseFilter {
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Reflect, Default, Clone, Copy, PartialEq, Debug)]
 #[reflect(Default)]
-pub enum FilterCombinator {
+pub enum StrengthCombinator {
     #[default]
     Max,
     Min,
     Multiply,
     Sum,
     SumUncapped
+}
+impl StrengthCombinator {
+    #[inline]
+    pub fn combine(&self, a: f32, b: f32) -> f32 {
+        match self {
+            StrengthCombinator::Max => a.max(b),
+            StrengthCombinator::Min => a.min(b),
+            StrengthCombinator::Multiply => a * b,
+            StrengthCombinator::Sum => (a + b).min(1.0),
+            StrengthCombinator::SumUncapped => a + b,
+        }
+    }
+    
+    #[inline]
+    pub fn combine_simd(&self, a: Vec4, b: Vec4) -> Vec4 {
+        match self {
+            StrengthCombinator::Max => a.max(b),
+            StrengthCombinator::Min => a.min(b),
+            StrengthCombinator::Multiply => a * b,
+            StrengthCombinator::Sum => (a + b).min(Vec4::ONE),
+            StrengthCombinator::SumUncapped => a + b,
+        }
+    }
 }
 
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -748,7 +775,7 @@ impl Default for NoiseFilterCondition {
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct BiomeSettings {
     pub filters: Vec<NoiseFilter>,
-    pub filter_combinator: FilterCombinator
+    pub filter_combinator: StrengthCombinator
 
     // Biome flags?
 }
@@ -810,7 +837,21 @@ impl TerrainNoiseSettings {
     ) {
         biomes.extend(
             self.biome.iter()
-            .map(|biome| calc_filter_strength(pos, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &noise_index_cache.data_index_cache))
+            .map(|biome| calc_filter_strength(pos, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.data_index_cache))
+        );
+    }
+    pub fn sample_biomes_simd(
+        &self,
+        noise_cache: &NoiseCache,
+        noise_index_cache: &NoiseIndexCache,
+        x: Vec4,
+        z: Vec4,
+        data_noise_values: &[Vec4],
+        biomes: &mut Vec<Vec4>
+    ) {
+        biomes.extend(
+            self.biome.iter()
+            .map(|biome| calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.data_index_cache))
         );
     }
 
@@ -823,7 +864,8 @@ impl TerrainNoiseSettings {
         noise_index_cache: &NoiseIndexCache,
         pos: Vec2,
         lookup_curves: &Assets<LookupCurve>,
-        data_noise_values: &[f32]
+        data_noise_values: &[f32],
+        biome_values: &[f32]
     ) -> f32 {
         unsafe {
             let spline_height = self.splines.iter().enumerate().fold(0.0, |acc, (i, layer)| {
@@ -833,6 +875,7 @@ impl TerrainNoiseSettings {
                     self,
                     noise_cache,
                     data_noise_values,
+                    biome_values,
                     &noise_index_cache.spline_index_cache,
                     noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
                     lookup_curves,
@@ -840,7 +883,7 @@ impl TerrainNoiseSettings {
             });
 
             let layer_height = self.noise_groups.iter().enumerate().fold(0.0, |acc, (i, group)| {
-                acc + group.sample(self, noise_cache, data_noise_values, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], pos)
+                acc + group.sample(self, noise_cache, data_noise_values, biome_values, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], pos)
             });
 
             spline_height + layer_height
@@ -854,7 +897,8 @@ impl TerrainNoiseSettings {
         lookup_curves: &Assets<LookupCurve>,
         x: Vec4,
         z: Vec4,
-        data_cached: &[Vec4]
+        data_cached: &[Vec4],
+        biome_values: &[Vec4],
     ) -> Vec4 {
         unsafe {
             let spline_height = self.splines.iter().enumerate().fold(Vec4::ZERO, |acc, (i, layer)| {
@@ -864,6 +908,7 @@ impl TerrainNoiseSettings {
                     self,
                     noise_cache,
                     data_cached,
+                    biome_values,
                     &noise_index_cache.spline_index_cache,
                     noise_cache.get_by_index(noise_index_cache.spline_index_cache[i] as usize),
                     lookup_curves,
@@ -871,7 +916,7 @@ impl TerrainNoiseSettings {
             });
 
             let layer_height = self.noise_groups.iter().enumerate().fold(Vec4::ZERO, |acc, (i, group)| {
-                acc + group.sample_simd(self, noise_cache, data_cached, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], x, z)
+                acc + group.sample_simd(self, noise_cache, data_cached, biome_values, &noise_index_cache.spline_index_cache, &noise_index_cache.group_index_cache[noise_index_cache.group_offset_cache[i] as usize..], x, z)
             });
 
             spline_height + layer_height
@@ -893,7 +938,7 @@ pub(super) fn apply_noise_simd(
     noise_index_cache: &NoiseIndexCache,
     lookup_curves: &Assets<LookupCurve>,
     terrain_noise_layers: &TerrainNoiseSettings,
-) {
+) -> TileBiomes {
 
     let edge_points = terrain_settings.edge_points as usize;
     let length = heights.len();
@@ -902,7 +947,10 @@ pub(super) fn apply_noise_simd(
     #[cfg(feature = "count_samples")]
     SAMPLES.set(0);
 
+    let mut tile_biomes = TileBiomes(vec![0.0; terrain_noise_layers.biome.len()]);
+
     let mut data_simd = Vec::with_capacity(terrain_noise_layers.data.len());
+    let mut biomes_simd = Vec::with_capacity(terrain_noise_layers.biome.len());
 
     // Process in chunks of 4
     for i in (0..simd_len).step_by(4) {
@@ -923,7 +971,16 @@ pub(super) fn apply_noise_simd(
         data_simd.clear();
         terrain_noise_layers.sample_data_simd(noise_cache, noise_index_cache, x_translated, z_translated, &mut data_simd);
 
-        let final_heights = terrain_noise_layers.sample_position_simd(noise_cache, noise_index_cache, lookup_curves, x_translated, z_translated, &data_simd);
+        biomes_simd.clear();
+        terrain_noise_layers.sample_biomes_simd(noise_cache, noise_index_cache, x_translated, z_translated, &data_simd, &mut biomes_simd);
+        for (i, biome) in biomes_simd.iter().enumerate() {
+            let max_biome_strength = &mut tile_biomes.0[i];
+
+            *max_biome_strength = max_biome_strength.max(biome.max_element());
+        }
+
+
+        let final_heights = terrain_noise_layers.sample_position_simd(noise_cache, noise_index_cache, lookup_curves, x_translated, z_translated, &data_simd, &biomes_simd);
 
         // Store the results back into the heights array
         heights[i] = final_heights.x;
@@ -934,6 +991,7 @@ pub(super) fn apply_noise_simd(
 
 
     let mut data = Vec::with_capacity(terrain_noise_layers.data.len());
+    let mut biomes = Vec::with_capacity(terrain_noise_layers.biome.len());
 
     // Process any remaining heights that aren't divisible by 4
     for (i, height) in heights.iter_mut().enumerate().skip(simd_len) {
@@ -943,9 +1001,19 @@ pub(super) fn apply_noise_simd(
         data.clear();
         terrain_noise_layers.sample_data(noise_cache, noise_index_cache, vertex_position, &mut data);
 
-        *height = terrain_noise_layers.sample_position(noise_cache, noise_index_cache, vertex_position, lookup_curves, &data);
+        biomes.clear();
+        terrain_noise_layers.sample_biomes(noise_cache, noise_index_cache, vertex_position, &data, &mut biomes);
+        for (i, biome) in biomes.iter().enumerate() {
+            let max_biome_strength = &mut tile_biomes.0[i];
+
+            *max_biome_strength = max_biome_strength.max(*biome);
+        }
+
+        *height = terrain_noise_layers.sample_position(noise_cache, noise_index_cache, vertex_position, lookup_curves, &data, &biomes);
     }
     
     #[cfg(feature = "count_samples")]
     info!("Average samples: {}", SAMPLES.get() / length);
+
+    tile_biomes
 }
