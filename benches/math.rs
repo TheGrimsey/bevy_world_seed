@@ -23,7 +23,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Apply texture", |b| {
-        b.iter(black_box(|| apply_texture(&mut [0, 230, 20, 5], 2, 1.0)))
+        b.iter(black_box(|| apply_texture(&mut [0, 230, 20, 5], 2, 255)))
     });
 
     c.bench_function("Evalutate rule (Above)", |b| {

@@ -348,55 +348,77 @@ impl TerrainMaterial {
         self.texture_d_normal = None;
     }
 
+    fn clear_slot(&mut self, index: usize) {
+        match index {
+            0 => {
+                self.texture_a = None;
+                self.texture_a_normal = None;
+            },
+            1 => {
+                self.texture_b = None;
+                self.texture_b_normal = None;
+            },
+            2 => {
+                self.texture_c = None;
+                self.texture_c_normal = None;
+            },
+            3 => {
+                self.texture_d = None;
+                self.texture_d_normal = None;
+            },
+            _ => {}
+        }
+    }
+
     fn get_texture_slot(
         &mut self,
         image: &Handle<Image>,
         normal: &Option<Handle<Image>>,
         units_per_texture: f32,
         tile_size: f32,
-    ) -> Option<usize> {
+    ) -> Option<(usize, bool)> {
         let scale = 1.0 / (units_per_texture / tile_size);
         // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
         if self.texture_a.as_ref().is_some_and(|entry| {
             entry == image && self.texture_a_scale == scale && self.texture_a_normal == *normal
         }) {
-            Some(0)
+            Some((0, false))
         } else if self.texture_b.as_ref().is_some_and(|entry| {
             entry == image && self.texture_b_scale == scale && self.texture_b_normal == *normal
         }) {
-            Some(1)
+            Some((1, false))
         } else if self.texture_c.as_ref().is_some_and(|entry| {
             entry == image && self.texture_c_scale == scale && self.texture_c_normal == *normal
         }) {
-            Some(2)
+            Some((2, false))
         } else if self.texture_d.as_ref().is_some_and(|entry| {
             entry == image && self.texture_d_scale == scale && self.texture_d_normal == *normal
         }) {
-            Some(3)
+            Some((3, false))
         } else if self.texture_a.is_none() {
             self.texture_a = Some(image.clone());
             self.texture_a_normal.clone_from(normal);
             self.texture_a_scale = scale;
 
-            Some(0)
+            Some((0, true))
         } else if self.texture_b.is_none() {
             self.texture_b = Some(image.clone());
             self.texture_b_normal.clone_from(normal);
             self.texture_b_scale = scale;
 
-            Some(1)
+            Some((1, true))
         } else if self.texture_c.is_none() {
             self.texture_c = Some(image.clone());
             self.texture_c_normal.clone_from(normal);
             self.texture_c_scale = scale;
 
-            Some(2)
+            Some((2, true))
         } else if self.texture_d.is_none() {
             self.texture_d = Some(image.clone());
             self.texture_d_normal.clone_from(normal);
             self.texture_d_scale = scale;
 
-            Some(3)
+            Some((3, true))
         } else {
             None
         }
@@ -578,7 +600,6 @@ fn update_terrain_texture_maps(
                 let max = aabb.center.y + aabb.half_extents.y;
 
                 for rule in texturing_settings.1.rules.iter() {
-                    
                     if (
                         matches!(rule.evaulator_combinator, StrengthCombinator::Min | StrengthCombinator::Multiply) && !rule.evaluators.iter().all(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
                         || !rule.evaluators.iter().any(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
@@ -586,7 +607,7 @@ fn update_terrain_texture_maps(
                         continue;
                     }
 
-                    let Some(texture_channel) = material.extension.get_texture_slot(
+                    let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
                         &rule.texture,
                         &rule.normal_texture,
                         rule.units_per_texture,
@@ -596,6 +617,7 @@ fn update_terrain_texture_maps(
                         continue;
                     };
                     
+                    let mut applied = false;
                     let needs_noise = *needs_noise && rule.evaluators.iter().any(|evaluator| evaluator.needs_noise()); 
 
                     for (i, val) in texture.data.chunks_exact_mut(16).enumerate() {
@@ -716,10 +738,20 @@ fn update_terrain_texture_maps(
                         };
 
                         // Apply texture.
-                        apply_texture(&mut val[0..4], texture_channel, strength.x);
-                        apply_texture(&mut val[4..8], texture_channel, strength.y);
-                        apply_texture(&mut val[8..12], texture_channel, strength.z);
-                        apply_texture(&mut val[12..16], texture_channel, strength.w);
+                        let strength = strength * Vec4::splat(255.0);
+                        
+                        if strength.cmpge(Vec4::splat(f32::EPSILON)).any() {
+                            apply_texture(&mut val[0..4], texture_channel, strength.x as u8);
+                            apply_texture(&mut val[4..8], texture_channel, strength.y as u8);
+                            apply_texture(&mut val[8..12], texture_channel, strength.z as u8);
+                            apply_texture(&mut val[12..16], texture_channel, strength.w as u8);
+
+                            applied = true;
+                        }
+                    }
+
+                    if is_new && !applied {
+                        material.extension.clear_slot(texture_channel);
                     }
                 }
             }
@@ -737,7 +769,7 @@ fn update_terrain_texture_maps(
                         global_transform,
                     )) = shape_modifier_query.get(entry.entity)
                     {
-                        let Some(texture_channel) = material.extension.get_texture_slot(
+                        let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
                             &texture_modifier.texture,
                             &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
@@ -746,6 +778,8 @@ fn update_terrain_texture_maps(
                             info!("Hit max texture channels.");
                             return;
                         };
+
+                        let mut applied = false;
                         let shape_translation = global_transform.translation().xz();
                         let (falloff, easing_function) = texture_modifier_falloff
                             .map(|falloff| (falloff.falloff, falloff.easing_function))
@@ -772,10 +806,15 @@ fn update_terrain_texture_maps(
                                         - ((pixel_position.distance(shape_translation) - radius)
                                             / falloff))
                                         .clamp(0.0, texture_modifier.max_strength);
+
                                     let eased_strength = easing_function.ease(strength);
 
                                     // Apply texture.
-                                    apply_texture(val, texture_channel, eased_strength);
+                                    let scaled_strength = (eased_strength * 255.0) as u8;
+                                    if scaled_strength > 0 {
+                                        apply_texture(val, texture_channel, scaled_strength);
+                                        applied = true;
+                                    }
                                 }
                             }
                             ShapeModifier::Rectangle { x, z } => {
@@ -817,9 +856,17 @@ fn update_terrain_texture_maps(
                                     let eased_strength = easing_function.ease(strength);
 
                                     // Apply texture.
-                                    apply_texture(val, texture_channel, eased_strength);
+                                    let scaled_strength = (eased_strength * 255.0) as u8;
+                                    if scaled_strength > 0 {
+                                        apply_texture(val, texture_channel, scaled_strength);
+                                        applied = true;
+                                    }
                                 }
                             }
+                        }
+
+                        if is_new && !applied {
+                            material.extension.clear_slot(texture_channel);
                         }
                     }
                 }
@@ -838,7 +885,7 @@ fn update_terrain_texture_maps(
                         texture_modifier_falloff,
                     )) = spline_query.get(entry.entity)
                     {
-                        let Some(texture_channel) = material.extension.get_texture_slot(
+                        let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
                             &texture_modifier.texture,
                             &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
@@ -852,6 +899,8 @@ fn update_terrain_texture_maps(
                             .or(modifier_falloff
                                 .map(|falloff| (falloff.falloff, falloff.easing_function)))
                             .unwrap_or((f32::EPSILON, EasingFunction::Linear));
+
+                        let mut applied = false;
 
                         for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
                             let (x, z) = index_to_x_z(i, resolution as usize);
@@ -885,7 +934,16 @@ fn update_terrain_texture_maps(
                             let eased_strength = easing_function.ease(strength);
 
                             // Apply texture.
-                            apply_texture(val, texture_channel, eased_strength);
+                            // Apply texture.
+                            let scaled_strength = (eased_strength * 255.0) as u8;
+                            if scaled_strength > 0 {
+                                apply_texture(val, texture_channel, scaled_strength);
+                                applied = true;
+                            }
+                        }
+                        
+                        if is_new && !applied {
+                            material.extension.clear_slot(texture_channel);
                         }
                     }
                 }
@@ -893,11 +951,10 @@ fn update_terrain_texture_maps(
         });
 }
 
-pub fn apply_texture(channels: &mut [u8], target_channel: usize, target_strength: f32) {
+pub fn apply_texture(channels: &mut [u8], target_channel: usize, strength: u8) {
     // Problem: Must be fast. Must be understandable.
 
     // Idea: Try to apply the full strength. Removing from the highest if there is not enough.
-    let strength = (target_strength * 255.0) as u8;
 
     // Don't decrease the strength of our channel.
     if channels[target_channel] < strength {
