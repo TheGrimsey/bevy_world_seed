@@ -70,7 +70,7 @@ pub struct HoleEntry {
 /// Marker component for the entity being a terrain tile.
 ///
 /// Internal `IVec2` is updated based on `GlobalTransform` to the tile this terrain corresponds to.
-#[derive(Reflect, Debug, Default, Clone, Copy)]
+#[derive(Reflect, Deref, Debug, Default, Clone, Copy)]
 #[reflect(Component)]
 pub struct Terrain(pub(super) IVec2);
 impl Terrain {
