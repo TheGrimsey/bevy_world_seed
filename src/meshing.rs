@@ -16,7 +16,7 @@ use bevy_math::{IVec2, Vec2, Vec3, Vec3A, Vec4};
 use crate::{
     terrain::{Holes, TileToTerrain},
     update_terrain_heights,
-    utils::face_normal,
+    utils::face_area_normal,
     Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
 };
 
@@ -207,7 +207,6 @@ fn create_terrain_mesh(
 
     // Generate normals
     let mut normals = vec![Vec3::ZERO; positions.len()];
-    let mut adjacency_counts = vec![0_u8; positions.len()];
 
     // Create triangles.
     // Using U16 when possible to save memory.
@@ -245,7 +244,7 @@ fn create_terrain_mesh(
 
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
-            let normal = face_normal(
+            let normal = face_area_normal(
                 positions[a as usize],
                 positions[b as usize],
                 positions[c as usize],
@@ -253,7 +252,6 @@ fn create_terrain_mesh(
 
             [a, b, c].iter().for_each(|pos| {
                 normals[*pos as usize] += normal;
-                adjacency_counts[*pos as usize] += 1;
             });
         });
 
@@ -291,7 +289,7 @@ fn create_terrain_mesh(
 
         indices.chunks_exact(3).for_each(|face| {
             let [a, b, c] = [face[0], face[1], face[2]];
-            let normal = face_normal(
+            let normal = face_area_normal(
                 positions[a as usize],
                 positions[b as usize],
                 positions[c as usize],
@@ -299,7 +297,6 @@ fn create_terrain_mesh(
 
             [a, b, c].iter().for_each(|pos| {
                 normals[*pos as usize] += normal;
-                adjacency_counts[*pos as usize] += 1;
             });
         });
 
@@ -326,10 +323,9 @@ fn create_terrain_mesh(
             let c_i = x + edge_length as usize - 2;
             let c = Vec3::new(s.x - step, neighbors[c_i], s.z);
 
-            let face_a = face_normal(b, a, s);
-            let face_b = face_normal(c, b, s);
+            let face_a = face_area_normal(b, a, s);
+            let face_b = face_area_normal(c, b, s);
 
-            adjacency_counts[x] += 2;
             normals[x] += face_a + face_b;
         }
 
@@ -350,11 +346,9 @@ fn create_terrain_mesh(
             let d_i = x - edge_length as usize;
             let d = Vec3::new(s.x, heights[d_i], s.z - step);
 
-            let face_a = face_normal(b, a, s);
-            let face_b = face_normal(c, b, s);
-            let face_c = face_normal(d, c, s);
-
-            adjacency_counts[x] += 3;
+            let face_a = face_area_normal(b, a, s);
+            let face_b = face_area_normal(c, b, s);
+            let face_c = face_area_normal(d, c, s);
 
             normals[x] += face_a + face_b + face_c;
         }
@@ -381,11 +375,9 @@ fn create_terrain_mesh(
             let d_i = x + edge_length as usize;
             let d = Vec3::new(s.x, heights[d_i], s.z + step);
 
-            let face_a = face_normal(b, a, s);
-            let face_b = face_normal(c, b, s);
-            let face_c = face_normal(d, c, s);
-
-            adjacency_counts[x] += 3;
+            let face_a = face_area_normal(b, a, s);
+            let face_b = face_area_normal(c, b, s);
+            let face_c = face_area_normal(d, c, s);
 
             normals[x] += face_a + face_b + face_c;
         }
@@ -406,11 +398,9 @@ fn create_terrain_mesh(
             let c = Vec3::new(s.x + step, neighbor_row[x + 1], s.z - step);
             let d = Vec3::new(s.x + step, heights[x + 1], s.z);
 
-            let face_a = face_normal(b, a, s);
-            let face_b = face_normal(c, b, s);
-            let face_c = face_normal(d, c, s);
-
-            adjacency_counts[x] += 3;
+            let face_a = face_area_normal(b, a, s);
+            let face_b = face_area_normal(c, b, s);
+            let face_c = face_area_normal(d, c, s);
 
             normals[x] += face_a + face_b + face_c;
         }
@@ -432,20 +422,17 @@ fn create_terrain_mesh(
             let c = Vec3::new(s.x - step, neighbor_row[x - 1], s.z + step);
             let d = Vec3::new(s.x - step, heights[s_x - 1], s.z);
 
-            let face_a = face_normal(b, a, s);
-            let face_b = face_normal(c, b, s);
-            let face_c = face_normal(d, c, s);
-
-            adjacency_counts[s_x] += 3;
+            let face_a = face_area_normal(b, a, s);
+            let face_b = face_area_normal(c, b, s);
+            let face_c = face_area_normal(d, c, s);
 
             normals[s_x] += face_a + face_b + face_c;
         }
     }
 
     // average (smooth) normals for shared vertices...
-    for i in 0..normals.len() {
-        let count = adjacency_counts[i];
-        normals[i] = (normals[i] / (count as f32)).normalize();
+    for normal in &mut normals {
+        *normal = normal.try_normalize().unwrap_or(Vec3::ZERO);
     }
 
     let generated_tangents = generate_tangents(&indices, &positions, &uvs, &normals);

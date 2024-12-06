@@ -177,6 +177,13 @@ pub fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     (b - a).cross(c - a).normalize()
 }
 
+/// Proportionate normals grabbed from https://github.com/bevyengine/bevy/pull/16050
+#[inline]
+pub fn face_area_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    (b - a).cross(c - a)
+}
+
+
 #[test]
 fn test_height_in_tile() {
     let terrain_settings = TerrainSettings {
