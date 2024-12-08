@@ -2,7 +2,7 @@ use core::f32;
 use std::f32::consts::TAU;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
-use bevy_log::info_span;
+use bevy_log::{info, info_span};
 use bevy_ecs::prelude::{
     on_event, Commands, Component, Entity, EventReader, IntoSystemConfigs,
     Query, ReflectComponent, Res, Resource
@@ -13,9 +13,7 @@ use bevy_reflect::Reflect;
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{
-    terrain::TileToTerrain,
-    utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile},
-    Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt,
+    noise::{NoiseCache, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct FeaturePlacementPlugin;
@@ -45,11 +43,15 @@ pub enum FeaturePlacementCondition {
         min_angle_radians: f32,
         max_angle_radians: f32,
     },
+    InBiome {
+        biome: u32
+    }
     /*HeightDeltaInRadiusLessThan {
         radius: f32,
         max_increase: f32,
         max_decrease: f32
     }*/
+
 }
 
 pub enum FeatureSpawnStrategy {
@@ -94,11 +96,17 @@ pub struct Feature {
 impl Feature {
     pub fn check_conditions(
         &self,
+        tile_translation: Vec2,
         placement_position: Vec3,
         // If not provided, generated in condition.
         terrain_normal: Option<Vec3>,
         heights: &Heights,
+        biome_values: &[f32],
         terrain_settings: &TerrainSettings,
+        terrain_noise_layers: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        noise_index_cache: &NoiseIndexCache,
+        rng: &Rng
     ) -> bool {
         self.placement_conditions
             .iter()
@@ -119,6 +127,24 @@ impl Feature {
 
                     *min_angle_radians <= angle && angle <= *max_angle_radians
                 }
+                FeaturePlacementCondition::InBiome { biome } => {
+                    if biome_values.get(*biome as usize).is_some_and(|biome| *biome > f32::EPSILON) {
+                        let pos = tile_translation + placement_position.xz(); 
+                        // TODO: Cache this...
+                        let mut data = Vec::with_capacity(terrain_noise_layers.data.len());
+                        terrain_noise_layers.sample_data(noise_cache, noise_index_cache, pos, &mut data);
+
+                        let mut biomes = Vec::with_capacity(terrain_noise_layers.biome.len());
+                        terrain_noise_layers.sample_biomes(noise_cache, noise_index_cache, pos, &data, &mut biomes);
+
+                        if biome_values[*biome as usize] < 1.0 {
+                            info!("{}", biomes[*biome as usize]);
+                        }
+                        biomes.get(*biome as usize).is_some_and(|biomeness| rng.f32() <= *biomeness)
+                    } else {
+                        false
+                    }
+                },
             })
     }
 }
@@ -136,8 +162,13 @@ impl FeatureGroup {
     pub fn generate_placements(
         &self,
         rng: &Rng,
+        tile_translation: Vec2,
         heights: &Heights,
+        tile_biomes: &TileBiomes,
         terrain_settings: &TerrainSettings,
+        terrain_noise_layers: &TerrainNoiseSettings,
+        noise_cache: &NoiseCache,
+        noise_index_cache: &NoiseIndexCache,
     ) -> Vec<FeaturePlacement> {
         let tile_size = terrain_settings.tile_size();
         let total_weight = self.features.iter().fold(0.0, |acc, feature| acc + feature.weight);
@@ -201,10 +232,16 @@ impl FeatureGroup {
                 }
 
                 if feature.check_conditions(
+                    tile_translation,
                     position,
                     terrain_normal,
                     heights,
+                    &tile_biomes.0,
                     terrain_settings,
+                    terrain_noise_layers,
+                    noise_cache,
+                    noise_index_cache,
+                    rng
                 ) {
                     Some(FeaturePlacement {
                         index,
@@ -391,7 +428,10 @@ fn update_features_on_tile_built(
     tile_to_terrain: Res<TileToTerrain>,
     terrain_features: Res<TerrainFeatures>,
     terrain_settings: Res<TerrainSettings>,
-    mut query: Query<(&Heights, &mut SpawnedFeatures)>,
+    terrain_noise_layers: Res<TerrainNoiseSettings>,
+    noise_cache: Res<NoiseCache>,
+    noise_index_cache: Res<NoiseIndexCache>,
+    mut query: Query<(&Heights, &mut SpawnedFeatures, &TileBiomes)>,
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
         let _span = info_span!("Spawn features for tile").entered();
@@ -401,9 +441,11 @@ fn update_features_on_tile_built(
         else {
             continue;
         };
-        let Ok((heights, mut spawned_features)) = query.get_mut(tile_entity) else {
+        let Ok((heights, mut spawned_features, tile_biomes)) = query.get_mut(tile_entity) else {
             continue;
         };
+
+        let tile_translation = (*tile << terrain_settings.tile_size_power.get() as u32).as_vec2();
 
         for spawned_feature in spawned_features.spawned.drain(..) {
             let feature_group = &terrain_features.feature_groups[spawned_feature.group as usize];
@@ -430,7 +472,7 @@ fn update_features_on_tile_built(
                     let seed = seed_hash(*tile, feature_group.feature_seed as u64);
                     let rng = Rng::with_seed(seed);
 
-                    feature_group.generate_placements(&rng, heights, &terrain_settings)
+                    feature_group.generate_placements(&rng, tile_translation, heights, tile_biomes, &terrain_settings, &terrain_noise_layers, &noise_cache, &noise_index_cache)
                 })
                 .collect::<Vec<_>>()
         };

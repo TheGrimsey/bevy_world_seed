@@ -199,19 +199,19 @@ fn main() {
                 BiomeSettings {
                     filters: vec![NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.5),
-                        falloff: 0.25,
+                        falloff: 0.1,
                         falloff_easing_function: EasingFunction::SmoothStep,
                         compare_to: FilterComparingTo::Data { index: 0 }
                     },
                     NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.5),
-                        falloff: 0.25,
+                        falloff: 0.1,
                         falloff_easing_function: EasingFunction::SmoothStep,
                         compare_to: FilterComparingTo::Data { index: 1 }
                     },
                     NoiseFilter {
                         condition: NoiseFilterCondition::Above(0.5),
-                        falloff: 0.25,
+                        falloff: 0.1,
                         falloff_easing_function: EasingFunction::SmoothStep,
                         compare_to: FilterComparingTo::Data { index: 2 }
                     }],
@@ -391,6 +391,9 @@ fn insert_rules(
             placement_conditions: vec![FeaturePlacementCondition::SlopeBetween {
                 min_angle_radians: 0.0,
                 max_angle_radians: 45.0_f32.to_radians(),
+            },
+            FeaturePlacementCondition::InBiome {
+                biome: 0
             }],
             randomize_yaw_rotation: true,
             align_to_terrain_normal: true,

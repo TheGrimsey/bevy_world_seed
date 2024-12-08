@@ -1,5 +1,6 @@
 use std::cell::Cell;
 
+#[cfg(feature = "count_samples")]
 use bevy_log::info;
 use ::noise::{NoiseFn, Simplex};
 use bevy_asset::{Assets, Handle};
