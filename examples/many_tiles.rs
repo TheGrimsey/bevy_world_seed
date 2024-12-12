@@ -9,8 +9,7 @@ use bevy::{
     math::{Vec3, Vec3Swizzles},
     pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
     prelude::{
-        default, BuildChildren, Commands, Cuboid, GlobalTransform, Mesh, PluginGroup, Res,
-        ResMut, Transform, TransformBundle, VisibilityBundle, With, World,
+        default, BuildChildren, Commands, Cone, Cuboid, GlobalTransform, Mesh, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle, With, World
     },
     DefaultPlugins,
 };
@@ -335,7 +334,10 @@ fn insert_rules(
     ]);
 
     let cube_mesh_handle = meshes.add(Cuboid::from_length(1.0));
-    let red_cube_mesh_handle = cube_mesh_handle.clone();
+    let red_cube_mesh_handle = meshes.add(Cone {
+        radius: 0.5,
+        height: 1.0,
+    });
     let blue_material_handle = material.add(StandardMaterial::from_color(Srgba::BLUE));
     
     let red_material_handle = material.add(StandardMaterial::from_color(Srgba::RED));
@@ -409,7 +411,7 @@ fn insert_rules(
                 max_angle_radians: 45.0_f32.to_radians(),
             }],
             randomize_yaw_rotation: true,
-            align_to_terrain_normal: false,
+            align_to_terrain_normal: true,
             scale_randomization: FeatureScaleRandomization::Uniform { min: 1.0, max: 2.0 },
             spawn_strategy: red_spawn_strategy,
             despawn_strategy: FeatureDespawnStrategy::Default,

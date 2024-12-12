@@ -661,24 +661,7 @@ impl NoiseFilter {
         &self,
         noise_value: f32,
     ) -> f32 {
-        let strength = match &self.condition {
-            NoiseFilterCondition::Above(threshold) => {
-                1.0 - ((threshold - noise_value) / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
-            }
-            NoiseFilterCondition::Below(threshold) => {
-                1.0 - ((noise_value - threshold) / self.falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
-            }
-            NoiseFilterCondition::Between { min, max } => {
-                let strength_below = 1.0
-                    - ((min - noise_value) / self.falloff.max(f32::EPSILON))
-                        .clamp(0.0, 1.0);
-                let strength_above = 1.0
-                    - ((noise_value - max) / self.falloff.max(f32::EPSILON))
-                        .clamp(0.0, 1.0);
-
-                strength_below.min(strength_above)
-            }
-        };
+        let strength = self.condition.evaluate_condition(noise_value, self.falloff);
 
         self.falloff_easing_function.ease(strength)
     }
@@ -686,32 +669,7 @@ impl NoiseFilter {
         &self,
         noise_value: Vec4,
     ) -> Vec4 {
-        let strength = match &self.condition {
-            NoiseFilterCondition::Above(threshold) => {
-                Vec4::ONE
-                    - ((Vec4::splat(*threshold) - noise_value)
-                        / self.falloff.max(f32::EPSILON))
-                    .clamp(Vec4::ZERO, Vec4::ONE)
-            }
-            NoiseFilterCondition::Below(threshold) => {
-                Vec4::ONE
-                    - ((noise_value - Vec4::splat(*threshold))
-                        / self.falloff.max(f32::EPSILON))
-                    .clamp(Vec4::ZERO, Vec4::ONE)
-            }
-            NoiseFilterCondition::Between { min, max } => {
-                let strength_below = 1.0
-                    - ((Vec4::splat(*min) - noise_value)
-                        / self.falloff.max(f32::EPSILON))
-                    .clamp(Vec4::ZERO, Vec4::ONE);
-                let strength_above = 1.0
-                    - ((noise_value - Vec4::splat(*max))
-                        / self.falloff.max(f32::EPSILON))
-                    .clamp(Vec4::ZERO, Vec4::ONE);
-
-                strength_below.min(strength_above)
-            }
-        };
+        let strength = self.condition.evaluate_condition_simd(noise_value, self.falloff);
 
         self.falloff_easing_function.ease_simd(strength)
     }
@@ -764,6 +722,57 @@ pub enum NoiseFilterCondition {
 impl Default for NoiseFilterCondition {
     fn default() -> Self {
         Self::Above(0.5)
+    }
+}
+impl NoiseFilterCondition {
+    pub fn evaluate_condition(&self, value: f32, falloff: f32) -> f32 {
+        match &self {
+            NoiseFilterCondition::Above(threshold) => {
+                1.0 - ((threshold - value) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
+            }
+            NoiseFilterCondition::Below(threshold) => {
+                1.0 - ((value - threshold) / falloff.max(f32::EPSILON)).clamp(0.0, 1.0)
+            }
+            NoiseFilterCondition::Between { min, max } => {
+                let strength_below = 1.0
+                    - ((min - value) / falloff.max(f32::EPSILON))
+                        .clamp(0.0, 1.0);
+                let strength_above = 1.0
+                    - ((value - max) / falloff.max(f32::EPSILON))
+                        .clamp(0.0, 1.0);
+
+                strength_below.min(strength_above)
+            }
+        }
+    }
+
+    pub fn evaluate_condition_simd(&self, value: Vec4, falloff: f32) -> Vec4 {
+        match &self {
+            NoiseFilterCondition::Above(threshold) => {
+                Vec4::ONE
+                    - ((Vec4::splat(*threshold) - value)
+                        / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
+            }
+            NoiseFilterCondition::Below(threshold) => {
+                Vec4::ONE
+                    - ((value - Vec4::splat(*threshold))
+                        / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE)
+            }
+            NoiseFilterCondition::Between { min, max } => {
+                let strength_below = 1.0
+                    - ((Vec4::splat(*min) - value)
+                        / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE);
+                let strength_above = 1.0
+                    - ((value - Vec4::splat(*max))
+                        / falloff.max(f32::EPSILON))
+                    .clamp(Vec4::ZERO, Vec4::ONE);
+
+                strength_below.min(strength_above)
+            }
+        }
     }
 }
 

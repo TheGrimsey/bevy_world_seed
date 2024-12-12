@@ -2,7 +2,7 @@ use core::f32;
 use std::f32::consts::TAU;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
-use bevy_log::{info, info_span};
+use bevy_log::info_span;
 use bevy_ecs::prelude::{
     on_event, Commands, Component, Entity, EventReader, IntoSystemConfigs,
     Query, ReflectComponent, Res, Resource
@@ -13,7 +13,7 @@ use bevy_reflect::Reflect;
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{
-    noise::{NoiseCache, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
+    noise::{NoiseCache, NoiseFilterCondition, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct FeaturePlacementPlugin;
@@ -45,6 +45,11 @@ pub enum FeaturePlacementCondition {
     },
     InBiome {
         biome: u32
+    },
+    InNoise {
+        noise: u32,
+        condition: NoiseFilterCondition,
+        falloff: f32
     }
     /*HeightDeltaInRadiusLessThan {
         radius: f32,
@@ -137,10 +142,17 @@ impl Feature {
                         let mut biomes = Vec::with_capacity(terrain_noise_layers.biome.len());
                         terrain_noise_layers.sample_biomes(noise_cache, noise_index_cache, pos, &data, &mut biomes);
 
-                        if biome_values[*biome as usize] < 1.0 {
-                            info!("{}", biomes[*biome as usize]);
-                        }
                         biomes.get(*biome as usize).is_some_and(|biomeness| rng.f32() <= *biomeness)
+                    } else {
+                        false
+                    }
+                },
+                FeaturePlacementCondition::InNoise { noise, condition, falloff } => {
+                    if let Some(noise_layer) = terrain_noise_layers.data.get(*noise as usize) {
+                        let pos = tile_translation + placement_position.xz(); 
+                        let sample = noise_layer.sample_scaled_raw(pos.x, pos.y, unsafe { noise_cache.get_by_index(noise_index_cache.data_index_cache[*noise as usize] as usize) });
+
+                        rng.f32() <= condition.evaluate_condition(sample, *falloff)
                     } else {
                         false
                     }
