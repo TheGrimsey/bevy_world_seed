@@ -1,5 +1,6 @@
 use core::f32;
 use std::f32::consts::TAU;
+use bevy_transform::components::Transform;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
 use bevy_log::info_span;
@@ -258,9 +259,11 @@ impl FeatureGroup {
                     Some(FeaturePlacement {
                         index,
                         feature: feature_index as u32,
-                        position,
-                        scale,
-                        rotation
+                        transform: Transform {
+                            translation: position,
+                            rotation,
+                            scale,
+                        },
                     })
                 } else {
                     None
@@ -288,7 +291,7 @@ fn filter_features_by_collision(
                 .filter_map(|placement| {
                     let feature = &feature_group.features[placement.feature as usize];
 
-                    let placement_radius = feature.collision_radius * placement.scale.xz().max_element();
+                    let placement_radius = feature.collision_radius * placement.transform.scale.xz().max_element();
 
                     let can_place =
                         feature_placements
@@ -314,12 +317,13 @@ fn filter_features_by_collision(
                                                 .features
                                                 [other_placement.feature as usize];
 
-                                            let radii_sum = placement_radius + (other_feature.collision_radius * other_placement.scale.xz().max_element());
+                                            let radii_sum = placement_radius + (other_feature.collision_radius * other_placement.transform.scale.xz().max_element());
                                             let min_distance_squared = radii_sum * radii_sum;
 
                                             placement
-                                                .position
-                                                .distance_squared(other_placement.position)
+                                                .transform
+                                                .translation
+                                                .distance_squared(other_placement.transform.translation)
                                                 >= min_distance_squared
                                         })
                                 } else {
@@ -344,8 +348,9 @@ fn filter_features_by_collision(
                                                     + other_feature.collision_radius);
 
                                             placement
-                                                .position
-                                                .distance_squared(other_placement.position)
+                                                .transform
+                                                .translation
+                                                .distance_squared(other_placement.transform.translation)
                                                 >= min_distance_squared
                                         })
                                     } else {
@@ -374,9 +379,7 @@ pub struct TerrainFeatures {
 pub struct FeaturePlacement {
     pub index: u32,
     pub feature: u32,
-    pub position: Vec3,
-    pub scale: Vec3,
-    pub rotation: Quat
+    pub transform: Transform,
 }
 
 fn cantor_hash(a: u64, b: u64) -> u64 {

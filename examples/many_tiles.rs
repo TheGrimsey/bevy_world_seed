@@ -349,11 +349,7 @@ fn insert_rules(
                     .spawn(PbrBundle {
                         mesh: cube_mesh_handle.clone(),
                         material: blue_material_handle.clone(),
-                        transform: Transform {
-                            translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
-                            rotation: placement.rotation,
-                            scale: placement.scale,
-                        },
+                        transform: placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale),
                         ..default()
                     })
                     .set_parent(terrain_entity)
@@ -369,11 +365,7 @@ fn insert_rules(
                     .spawn(PbrBundle {
                         mesh: red_cube_mesh_handle.clone(),
                         material: red_material_handle.clone(),
-                        transform: Transform {
-                            translation: placement.position + (Vec3::new(0.0, 0.5, 0.0) * placement.scale),
-                            rotation: placement.rotation,
-                            scale: placement.scale,
-                        },
+                        transform: placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale),
                         ..default()
                     })
                     .set_parent(terrain_entity)

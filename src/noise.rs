@@ -1,3 +1,5 @@
+
+#[cfg(feature = "count_samples")]
 use std::cell::Cell;
 
 #[cfg(feature = "count_samples")]
