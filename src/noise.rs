@@ -849,7 +849,7 @@ impl TerrainNoiseSettings {
     ) {
         biomes.extend(
             self.biome.iter()
-            .map(|biome| calc_filter_strength(pos, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.data_index_cache))
+            .map(|biome| calc_filter_strength(pos, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.spline_index_cache))
         );
     }
     pub fn sample_biomes_simd(
@@ -863,7 +863,7 @@ impl TerrainNoiseSettings {
     ) {
         biomes.extend(
             self.biome.iter()
-            .map(|biome| calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.data_index_cache))
+            .map(|biome| calc_filter_strength_simd(x, z, &biome.filters, biome.filter_combinator, self, noise_cache, data_noise_values, &[], &noise_index_cache.spline_index_cache))
         );
     }
 
