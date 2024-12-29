@@ -115,7 +115,9 @@ pub fn get_height_at_position_in_quad(a: f32, b: f32, c: f32, d: f32, x: f32, y:
         closest_height_in_triangle(a, b, c, x, y)
     } else {
         // Point is in triangle BCD
-        closest_height_in_triangle(b, c, d, x, y)
+        let (u, v, w) = barycentric_coordinates(Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0), Vec2::new(1.0, 1.0), x, y);
+
+        b * u + c * v + d * w
     }
 }
 
@@ -135,27 +137,50 @@ fn closest_height_in_triangle(a: f32, b: f32, c: f32, x: f32, y: f32) -> f32 {
 /// X & Y should each be normalized within the quad ([0.0, 1.0]).
 #[inline]
 pub fn get_normal_at_position_in_quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, x: f32, y: f32) -> Vec3 {
-    // Determine which triangle the point (x, y) lies in
-    if x + y <= 1.0 {
+    // Determine which triangle the point (x, y) lies in0
+    if x + y < 1.0 {
         // Point is in triangle ABC
         closest_normal_in_triangle(a, b, c, x, y)
     } else {
         // Point is in triangle BCD
-        let new_x = x - 1.0;
-        let new_y = y - 1.0;
-        closest_normal_in_triangle(b, d, c, -new_x, -new_y)
+        let (u, v, w) = barycentric_coordinates(Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0), Vec2::new(1.0, 1.0), x, y);
+        (b * u + c * v + d * w).normalize_or_zero()
     }
 }
 
+/// Calculate the closest normal in a grid-spaced triangle.
+/// Only works for triangles with vertices at (0, 0), (1, 0), and (0, 1).
 #[inline]
 fn closest_normal_in_triangle(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32) -> Vec3 {
     // Calculate barycentric coordinates for the point (x, y) within the triangle
-    let u = 1.0 - x - y;
-    let v = x;
-    let w = y;
+    let u = 1.0 - x - y; // Weight for vertex a
+    let v = x;           // Weight for vertex b
+    let w = y;           // Weight for vertex c
 
     // Return the interpolated height based on barycentric coordinates
     (a * u + b * v + c * w).normalize_or_zero()
+}
+
+/// Calculate the barycentric coordinates for a point (px, py) within a triangle
+pub fn barycentric_coordinates(a: Vec2, b: Vec2, c: Vec2, px: f32, py: f32) -> (f32, f32, f32) {
+    let p = Vec2::new(px, py);
+
+    let v0 = b - a;
+    let v1 = c - a;
+    let v2 = p - a;
+
+    let d00 = v0.dot(v0);
+    let d01 = v0.dot(v1);
+    let d11 = v1.dot(v1);
+    let d20 = v2.dot(v0);
+    let d21 = v2.dot(v1);
+
+    let denom = d00 * d11 - d01 * d01;
+    let v = (d11 * d20 - d01 * d21) / denom;
+    let w = (d00 * d21 - d01 * d20) / denom;
+    let u = 1.0 - v - w;
+
+    (u, v, w)
 }
 
 #[inline]
@@ -204,12 +229,18 @@ fn test_height_in_tile() {
 
 #[test]
 fn test_normal_in_quad() {
-    let a = Vec3::new(0.0, 1.0, 0.0);
-    let b = Vec3::new(0.0, 1.0, 0.0);
-    let c = Vec3::new(0.0, 1.0, 0.0);
-    let d = Vec3::new(0.0, 1.0, 0.0);
+    let a = Vec3::new(1.0, 0.0, 0.0).normalize();
+    let b = Vec3::new(0.3, 0.0, 0.5).normalize();
+    let c = Vec3::new(0.0, 1.0, 0.0).normalize();
+    let d = Vec3::new(0.0, 0.0, 1.0).normalize();
 
-    let normal = get_normal_at_position_in_quad(a, b, c, d, 0.55, 0.55);
+    let normal_a = get_normal_at_position_in_quad(a, b, c, d, 0.0, 0.0);
+    let normal_b = get_normal_at_position_in_quad(a, b, c, d, 1.0, 0.0);
+    let normal_c = get_normal_at_position_in_quad(a, b, c, d, 0.0, 1.0);
+    let normal_d = get_normal_at_position_in_quad(a, b, c, d, 1.0, 1.0);
 
-    assert!((normal - Vec3::new(0.0, 1.0, 0.0)).length() <= f32::EPSILON, "{:?}", normal);
+    assert!((normal_a - a).length() <= f32::EPSILON, "Checking A, expected: {a:?}, RECIEVED: A: {normal_a:?}, B: {normal_b:?}, C: {normal_c:?}, D: {normal_d:?}");
+    assert!((normal_b - b).length() <= f32::EPSILON, "Checking B, expected: {b:?}, RECIEVED: A: {normal_a:?}, B: {normal_b:?}, C: {normal_c:?}, D: {normal_d:?}");
+    assert!((normal_c - c).length() <= f32::EPSILON, "Checking C, expected: {c:?}, RECIEVED: A: {normal_a:?}, B: {normal_b:?}, C: {normal_c:?}, D: {normal_d:?}");
+    assert!((normal_d - d).length() <= f32::EPSILON, "Checking D, expected: {d:?}, RECIEVED: A: {normal_a:?}, B: {normal_b:?}, C: {normal_c:?}, D: {normal_d:?}");
 }
