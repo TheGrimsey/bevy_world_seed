@@ -141,7 +141,9 @@ pub fn get_normal_at_position_in_quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, x: f32
         closest_normal_in_triangle(a, b, c, x, y)
     } else {
         // Point is in triangle BCD
-        closest_normal_in_triangle(b, c, d, x, y)
+        let new_x = x - 1.0;
+        let new_y = y - 1.0;
+        closest_normal_in_triangle(b, c, d, new_x, new_y)
     }
 }
 
