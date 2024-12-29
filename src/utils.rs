@@ -143,7 +143,7 @@ pub fn get_normal_at_position_in_quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, x: f32
         // Point is in triangle BCD
         let new_x = x - 1.0;
         let new_y = y - 1.0;
-        closest_normal_in_triangle(b, c, d, new_x, new_y)
+        closest_normal_in_triangle(b, d, c, -new_x, -new_y)
     }
 }
 
@@ -200,4 +200,16 @@ fn test_height_in_tile() {
     let height = get_height_at_position_in_tile(Vec2::splat(2.0), &heights, &terrain_settings);
 
     assert!((height - 2.0).abs() <= f32::EPSILON);
+}
+
+#[test]
+fn test_normal_in_quad() {
+    let a = Vec3::new(0.0, 1.0, 0.0);
+    let b = Vec3::new(0.0, 1.0, 0.0);
+    let c = Vec3::new(0.0, 1.0, 0.0);
+    let d = Vec3::new(0.0, 1.0, 0.0);
+
+    let normal = get_normal_at_position_in_quad(a, b, c, d, 0.55, 0.55);
+
+    assert!((normal - Vec3::new(0.0, 1.0, 0.0)).length() <= f32::EPSILON, "{:?}", normal);
 }
