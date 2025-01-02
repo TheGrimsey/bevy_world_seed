@@ -18,37 +18,31 @@
 @group(2) @binding(20) var texture_map: texture_2d<f32>;
 @group(2) @binding(21) var texture_map_sampler: sampler;
 
-@group(2) @binding(22) var texture_a: texture_2d<f32>;
-@group(2) @binding(23) var texture_a_sampler: sampler;
+@group(2) @binding(22) var<uniform> texture_a_scale: f32;
 
-@group(2) @binding(24) var texture_a_normal: texture_2d<f32>;
-@group(2) @binding(25) var texture_a_normal_sampler: sampler;
+@group(2) @binding(23) var texture_b: texture_2d<f32>;
+@group(2) @binding(24) var texture_b_sampler: sampler;
 
-@group(2) @binding(26) var<uniform> texture_a_scale: f32;
+@group(2) @binding(25) var texture_b_normal: texture_2d<f32>;
+@group(2) @binding(26) var texture_b_normal_sampler: sampler;
 
-@group(2) @binding(27) var texture_b: texture_2d<f32>;
-@group(2) @binding(28) var texture_b_sampler: sampler;
+@group(2) @binding(27) var<uniform> texture_b_scale: f32;
 
-@group(2) @binding(29) var texture_b_normal: texture_2d<f32>;
-@group(2) @binding(30) var texture_b_normal_sampler: sampler;
+@group(2) @binding(28) var texture_c: texture_2d<f32>;
+@group(2) @binding(29) var texture_c_sampler: sampler;
 
-@group(2) @binding(31) var<uniform> texture_b_scale: f32;
+@group(2) @binding(30) var texture_c_normal: texture_2d<f32>;
+@group(2) @binding(31) var texture_c_normal_sampler: sampler;
 
-@group(2) @binding(32) var texture_c: texture_2d<f32>;
-@group(2) @binding(33) var texture_c_sampler: sampler;
+@group(2) @binding(32) var<uniform> texture_c_scale: f32;
 
-@group(2) @binding(34) var texture_c_normal: texture_2d<f32>;
-@group(2) @binding(35) var texture_c_normal_sampler: sampler;
+@group(2) @binding(33) var texture_d: texture_2d<f32>;
+@group(2) @binding(34) var texture_d_sampler: sampler;
 
-@group(2) @binding(36) var<uniform> texture_c_scale: f32;
+@group(2) @binding(35) var texture_d_normal: texture_2d<f32>;
+@group(2) @binding(36) var texture_d_normal_sampler: sampler;
 
-@group(2) @binding(37) var texture_d: texture_2d<f32>;
-@group(2) @binding(38) var texture_d_sampler: sampler;
-
-@group(2) @binding(39) var texture_d_normal: texture_2d<f32>;
-@group(2) @binding(40) var texture_d_normal_sampler: sampler;
-
-@group(2) @binding(41) var<uniform> texture_d_scale: f32;
+@group(2) @binding(37) var<uniform> texture_d_scale: f32;
 
 @fragment
 fn fragment(
@@ -62,14 +56,14 @@ fn fragment(
     var texture_c_uv = fract(mesh.uv * texture_c_scale);
     var texture_d_uv = fract(mesh.uv * texture_d_scale);
     
-    var diffuse_a = textureSample(texture_a, texture_a_sampler, texture_a_uv) * texture_weights.x;
+    var diffuse_a = textureSample(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, texture_a_uv) * texture_weights.x;
     var diffuse_b = textureSample(texture_b, texture_b_sampler, texture_b_uv) * texture_weights.y;
     var diffuse_c = textureSample(texture_c, texture_c_sampler, texture_c_uv) * texture_weights.z;
     var diffuse_d = textureSample(texture_d, texture_d_sampler, texture_d_uv) * texture_weights.w;
 
     var color = normalize(diffuse_a + diffuse_b + diffuse_c + diffuse_d);
     
-    var normal_a = textureSample(texture_a_normal, texture_a_normal_sampler, texture_a_uv) * texture_weights.x;
+    var normal_a = textureSample(pbr_bindings::normal_map_texture, pbr_bindings::normal_map_sampler, texture_a_uv) * texture_weights.x;
     var normal_b = textureSample(texture_b_normal, texture_b_normal_sampler, texture_b_uv) * texture_weights.y;
     var normal_c = textureSample(texture_c_normal, texture_c_normal_sampler, texture_c_uv) * texture_weights.z;
     var normal_d = textureSample(texture_d_normal, texture_d_normal_sampler, texture_d_uv) * texture_weights.w;

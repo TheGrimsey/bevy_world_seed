@@ -295,76 +295,83 @@ pub(super) struct TerrainMaterial {
     #[sampler(21)]
     texture_map: Handle<Image>,
 
-    #[texture(22)]
-    #[sampler(23)]
-    texture_a: Option<Handle<Image>>,
-    #[texture(24)]
-    #[sampler(25)]
-    texture_a_normal: Option<Handle<Image>>,
-
-    #[uniform(26)]
+    #[uniform(22)]
     texture_a_scale: f32,
 
-    #[texture(27)]
-    #[sampler(28)]
+    #[texture(23)]
+    #[sampler(24)]
     texture_b: Option<Handle<Image>>,
-    #[texture(29)]
-    #[sampler(30)]
+    #[texture(25)]
+    #[sampler(26)]
     texture_b_normal: Option<Handle<Image>>,
 
-    #[uniform(31)]
+    #[uniform(27)]
     texture_b_scale: f32,
 
-    #[texture(32)]
-    #[sampler(33)]
+    #[texture(28)]
+    #[sampler(29)]
     texture_c: Option<Handle<Image>>,
-    #[texture(34)]
-    #[sampler(35)]
+    #[texture(30)]
+    #[sampler(31)]
     texture_c_normal: Option<Handle<Image>>,
 
-    #[uniform(36)]
+    #[uniform(32)]
     texture_c_scale: f32,
 
-    #[texture(37)]
-    #[sampler(38)]
+    #[texture(33)]
+    #[sampler(34)]
     texture_d: Option<Handle<Image>>,
-    #[texture(39)]
-    #[sampler(40)]
+    #[texture(35)]
+    #[sampler(36)]
     texture_d_normal: Option<Handle<Image>>,
 
-    #[uniform(41)]
+    #[uniform(37)]
     texture_d_scale: f32,
 }
-impl TerrainMaterial {
-    fn clear_textures(&mut self) {
-        self.texture_a = None;
-        self.texture_b = None;
-        self.texture_c = None;
-        self.texture_d = None;
 
-        self.texture_a_normal = None;
-        self.texture_b_normal = None;
-        self.texture_c_normal = None;
-        self.texture_d_normal = None;
+type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
+trait TerrainMaterialExtendedMethods {
+    fn clear_textures(&mut self);
+    fn clear_slot(&mut self, index: usize);
+    fn get_texture_slot(
+        &mut self,
+        image: &Handle<Image>,
+        normal: &Option<Handle<Image>>,
+        units_per_texture: f32,
+        tile_size: f32,
+    ) -> Option<(usize, bool)>;
+}
+
+impl TerrainMaterialExtendedMethods for TerrainMaterialExtended {
+    fn clear_textures(&mut self) {
+        self.base.base_color_texture = None;
+        self.extension.texture_b = None;
+        self.extension.texture_c = None;
+        self.extension.texture_d = None;
+
+        self.base.normal_map_texture = None;
+        self.extension.texture_b_normal = None;
+        self.extension.texture_c_normal = None;
+        self.extension.texture_d_normal = None;
     }
 
     fn clear_slot(&mut self, index: usize) {
         match index {
             0 => {
-                self.texture_a = None;
-                self.texture_a_normal = None;
+                self.base.base_color_texture = None;
+                self.base.normal_map_texture = None;
             },
             1 => {
-                self.texture_b = None;
-                self.texture_b_normal = None;
+                self.extension.texture_b = None;
+                self.extension.texture_b_normal = None;
             },
             2 => {
-                self.texture_c = None;
-                self.texture_c_normal = None;
+                self.extension.texture_c = None;
+                self.extension.texture_c_normal = None;
             },
             3 => {
-                self.texture_d = None;
-                self.texture_d_normal = None;
+                self.extension.texture_d = None;
+                self.extension.texture_d_normal = None;
             },
             _ => {}
         }
@@ -379,44 +386,44 @@ impl TerrainMaterial {
     ) -> Option<(usize, bool)> {
         let scale = 1.0 / (units_per_texture / tile_size);
         // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
-        if self.texture_a.as_ref().is_some_and(|entry| {
-            entry == image && self.texture_a_scale == scale && self.texture_a_normal == *normal
+        if self.base.base_color_texture.as_ref().is_some_and(|entry| {
+            entry == image && self.extension.texture_a_scale == scale && self.base.normal_map_texture == *normal
         }) {
             Some((0, false))
-        } else if self.texture_b.as_ref().is_some_and(|entry| {
-            entry == image && self.texture_b_scale == scale && self.texture_b_normal == *normal
+        } else if self.extension.texture_b.as_ref().is_some_and(|entry| {
+            entry == image && self.extension.texture_b_scale == scale && self.extension.texture_b_normal == *normal
         }) {
             Some((1, false))
-        } else if self.texture_c.as_ref().is_some_and(|entry| {
-            entry == image && self.texture_c_scale == scale && self.texture_c_normal == *normal
+        } else if self.extension.texture_c.as_ref().is_some_and(|entry| {
+            entry == image && self.extension.texture_c_scale == scale && self.extension.texture_c_normal == *normal
         }) {
             Some((2, false))
-        } else if self.texture_d.as_ref().is_some_and(|entry| {
-            entry == image && self.texture_d_scale == scale && self.texture_d_normal == *normal
+        } else if self.extension.texture_d.as_ref().is_some_and(|entry| {
+            entry == image && self.extension.texture_d_scale == scale && self.extension.texture_d_normal == *normal
         }) {
             Some((3, false))
-        } else if self.texture_a.is_none() {
-            self.texture_a = Some(image.clone());
-            self.texture_a_normal.clone_from(normal);
-            self.texture_a_scale = scale;
+        } else if self.base.base_color_texture.is_none() {
+            self.base.base_color_texture = Some(image.clone());
+            self.base.normal_map_texture.clone_from(normal);
+            self.extension.texture_a_scale = scale;
 
             Some((0, true))
-        } else if self.texture_b.is_none() {
-            self.texture_b = Some(image.clone());
-            self.texture_b_normal.clone_from(normal);
-            self.texture_b_scale = scale;
+        } else if self.extension.texture_b.is_none() {
+            self.extension.texture_b = Some(image.clone());
+            self.extension.texture_b_normal.clone_from(normal);
+            self.extension.texture_b_scale = scale;
 
             Some((1, true))
-        } else if self.texture_c.is_none() {
-            self.texture_c = Some(image.clone());
-            self.texture_c_normal.clone_from(normal);
-            self.texture_c_scale = scale;
+        } else if self.extension.texture_c.is_none() {
+            self.extension.texture_c = Some(image.clone());
+            self.extension.texture_c_normal.clone_from(normal);
+            self.extension.texture_c_scale = scale;
 
             Some((2, true))
-        } else if self.texture_d.is_none() {
-            self.texture_d = Some(image.clone());
-            self.texture_d_normal.clone_from(normal);
-            self.texture_d_scale = scale;
+        } else if self.extension.texture_d.is_none() {
+            self.extension.texture_d = Some(image.clone());
+            self.extension.texture_d_normal.clone_from(normal);
+            self.extension.texture_d_scale = scale;
 
             Some((3, true))
         } else {
@@ -424,8 +431,6 @@ impl TerrainMaterial {
         }
     }
 }
-
-type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
 
 impl MaterialExtension for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -582,7 +587,7 @@ fn update_terrain_texture_maps(
             };
 
             texture.data.fill(0);
-            material.extension.clear_textures();
+            material.clear_textures();
 
             let terrain_translation =
                 (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
@@ -607,7 +612,7 @@ fn update_terrain_texture_maps(
                         continue;
                     }
 
-                    let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
+                    let Some((texture_channel, is_new)) = material.get_texture_slot(
                         &rule.texture,
                         &rule.normal_texture,
                         rule.units_per_texture,
@@ -751,7 +756,7 @@ fn update_terrain_texture_maps(
                     }
 
                     if is_new && !applied {
-                        material.extension.clear_slot(texture_channel);
+                        material.clear_slot(texture_channel);
                     }
                 }
             }
@@ -769,7 +774,7 @@ fn update_terrain_texture_maps(
                         global_transform,
                     )) = shape_modifier_query.get(entry.entity)
                     {
-                        let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
+                        let Some((texture_channel, is_new)) = material.get_texture_slot(
                             &texture_modifier.texture,
                             &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
@@ -866,7 +871,7 @@ fn update_terrain_texture_maps(
                         }
 
                         if is_new && !applied {
-                            material.extension.clear_slot(texture_channel);
+                            material.clear_slot(texture_channel);
                         }
                     }
                 }
@@ -885,7 +890,7 @@ fn update_terrain_texture_maps(
                         texture_modifier_falloff,
                     )) = spline_query.get(entry.entity)
                     {
-                        let Some((texture_channel, is_new)) = material.extension.get_texture_slot(
+                        let Some((texture_channel, is_new)) = material.get_texture_slot(
                             &texture_modifier.texture,
                             &texture_modifier.normal_texture,
                             texture_modifier.units_per_texture,
@@ -943,7 +948,7 @@ fn update_terrain_texture_maps(
                         }
                         
                         if is_new && !applied {
-                            material.extension.clear_slot(texture_channel);
+                            material.clear_slot(texture_channel);
                         }
                     }
                 }

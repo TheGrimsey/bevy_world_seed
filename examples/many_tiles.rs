@@ -226,7 +226,7 @@ fn main() {
             max_spline_simplification_distance_squared: 6.0,
         },
         texturing_settings: Some(TerrainTexturingSettings {
-            texture_resolution_power: NonZeroU8::new(8).unwrap(),
+            texture_resolution_power: NonZeroU8::new(7 + 2).unwrap(),
             max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
         }),
         debug_draw: true,
@@ -317,8 +317,8 @@ fn insert_rules(
                 falloff_radians: 2.5_f32.to_radians(),
             }],
             evaulator_combinator: StrengthCombinator::Min,
-            texture: asset_server.load("textures/cracked_concrete_diff_1k.dds"),
-            normal_texture: Some(asset_server.load("textures/cracked_concrete_nor_gl_1k.dds")),
+            texture: asset_server.load("textures/single_color/stone.dds"),
+            normal_texture: None,
             units_per_texture: 4.0,
         },
         TexturingRule {
@@ -327,8 +327,8 @@ fn insert_rules(
                 falloff_radians: 2.5_f32.to_radians(),
             }],
             evaulator_combinator: StrengthCombinator::Min,
-            texture: asset_server.load("textures/brown_mud_leaves.dds"),
-            normal_texture: Some(asset_server.load("textures/brown_mud_leaves_01_nor_gl_2k.dds")),
+            texture: asset_server.load("textures/single_color/dirt.dds"),
+            normal_texture: None,
             units_per_texture: 4.0,
         },
     ]);
