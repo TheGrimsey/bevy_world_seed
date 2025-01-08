@@ -165,7 +165,7 @@ pub(super) fn update_terrain_spline_cache(
             &mut TerrainSplineCached,
             &TerrainSplineShape,
             &TerrainSplineProperties,
-            &GlobalTransform,
+            Option<&GlobalTransform>,
         ),
         Or<(
             Changed<TerrainSplineProperties>,
@@ -197,12 +197,17 @@ pub(super) fn update_terrain_spline_cache(
                 subdivisions = (subdivisions as f32 * 1.2) as usize;
             }
 
-            spline_cached.points.extend(
-                spline
-                    .curve
-                    .iter_positions(subdivisions)
-                    .map(|point| global_transform.transform_point(point)),
-            );
+            if let Some(global_transform) = global_transform {
+                spline_cached.points.extend(
+                    spline
+                        .curve
+                        .iter_positions(subdivisions)
+                        .map(|point| global_transform.transform_point(point)),
+                );
+            } else {
+                // Without a global transform, assume the curve is in world space already.
+                spline_cached.points.extend(spline.curve.iter_positions(subdivisions));
+            }
 
             // Keep last point in case it is removed by dedup.
             // First point can't be deleted by dedup so we don't need to save it.
