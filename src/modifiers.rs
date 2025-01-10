@@ -145,18 +145,18 @@ pub struct TerrainSplineCached {
     pub(super) points: Vec<Vec3>,
 }
 
-pub(super) struct TileModifierEntry {
-    pub(super) entity: Entity,
+pub struct TileModifierEntry {
+    pub entity: Entity,
     /// Acts as a 8x8 map telling us where in the tile this modifier has an effect.
     ///
     /// Allows us to skip checking modifiers for points that don't overlap, giving speed ups depending on how big the modifier is relative to the tile.
-    pub(super) overlap_bits: u64,
+    pub overlap_bits: u64,
 }
 
 #[derive(Resource, Default)]
-pub(super) struct TileToModifierMapping {
-    pub(super) shape: HashMap<IVec2, Vec<TileModifierEntry>>,
-    pub(super) splines: HashMap<IVec2, Vec<TileModifierEntry>>,
+pub struct TileToModifierMapping {
+    pub shape: HashMap<IVec2, Vec<TileModifierEntry>>,
+    pub splines: HashMap<IVec2, Vec<TileModifierEntry>>,
 }
 
 pub(super) fn update_terrain_spline_cache(
