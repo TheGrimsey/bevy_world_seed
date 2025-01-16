@@ -223,6 +223,20 @@ pub(super) fn update_terrain_spline_cache(
                     spline_cached.points.push(last);
                 }
             }
+
+            // Remove points which are on the line between it's neighbors.
+            // These points don't have any real effect on the spline shape but they do make it heavier to compute.
+            if spline_cached.points.len() > 2 {
+                for i in (1..spline_cached.points.len() - 1).rev() {
+                    let a = spline_cached.points[i - 1];
+                    let b = spline_cached.points[i];
+                    let c = spline_cached.points[i + 1];
+    
+                    if (b - a).normalize().dot((c - b).normalize()) > 0.999 {
+                        spline_cached.points.remove(i);
+                    }
+                }
+            }
         },
     );
 }
