@@ -44,18 +44,18 @@ fn debug_draw_terrain_modifiers(
 
             gizmos.line(*a, *b, Color::from(BLUE));
 
-            let distance = a.distance(*b);
-
             let forward = *b - *a;
-            let rotation = (-forward.x).atan2(-forward.z);
 
-            gizmos.rect(
-                a.lerp(*b, 0.5),
-                Quat::from_axis_angle(Vec3::X, 90.0_f32.to_radians())
-                    * Quat::from_rotation_z(rotation),
-                Vec2::new(distance, spline_properties.half_width * 2.0),
-                Color::from(BLUE),
-            );
+            let right = forward.cross(Vec3::Y).normalize();
+
+            let a_right = *a + right * spline_properties.half_width;
+            let a_left = *a - right * spline_properties.half_width;
+
+            let b_right = *b + right * spline_properties.half_width;
+            let b_left = *b - right * spline_properties.half_width;
+
+            gizmos.line(a_right, b_right, Color::from(BLUE));
+            gizmos.line(a_left, b_left, Color::from(BLUE));
         }
     });
 
