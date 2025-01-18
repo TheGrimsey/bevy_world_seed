@@ -328,8 +328,6 @@ fn update_terrain_heights(
                         global_transform,
                     )) = shape_modifier_query.get(entry.entity)
                     {
-                        let (_, _, shape_translation) =
-                            global_transform.to_scale_rotation_translation();
                         let (falloff, easing_function) = modifier_falloff
                             .map_or((f32::EPSILON, EasingFunction::Linear), |falloff| {
                                 (falloff.falloff, falloff.easing_function)
@@ -362,60 +360,15 @@ fn update_terrain_heights(
                             let vertex_position =
                                 terrain_translation + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-                            let vertex_local = global_transform
-                                .affine()
-                                .inverse()
-                                .transform_point3(Vec3::new(
-                                    vertex_position.x,
-                                    0.0,
-                                    vertex_position.y,
-                                ))
-                                .xz();
-
-                            let falloff = modifier_falloff_noise.map_or(falloff, |(falloff_noise, noise_index)| {
-                                let normalized_vertex =
-                                    shape_translation.xz() + vertex_local.normalize_or_zero();
-
-                                falloff
-                                    + falloff_noise.noise.sample(
-                                        normalized_vertex.x,
-                                        normalized_vertex.y,
-                                        unsafe { noise_cache.get_by_index(noise_index) },
-                                    )
-                            });
-
-                            let strength = match modifier {
-                                ShapeModifier::Circle { radius } => {
-                                    1.0 - ((vertex_local.distance(Vec2::ZERO) - radius) / falloff)
-                                }
-                                ShapeModifier::Rectangle { x, z } => {
-                                    let rect_min = Vec2::new(-x, -z);
-                                    let rect_max = Vec2::new(*x, *z);
-
-                                    let d_x = (rect_min.x - vertex_local.x)
-                                        .max(vertex_local.x - rect_max.x)
-                                        .max(0.0);
-                                    let d_y = (rect_min.y - vertex_local.y)
-                                        .max(vertex_local.y - rect_max.y)
-                                        .max(0.0);
-                                    let d_d = (d_x * d_x + d_y * d_y).sqrt();
-
-                                    1.0 - (d_d / falloff)
-                                }
-                            };
-
-                            let clamped_strength = strength.clamp(
-                                0.0,
-                                modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
-                            );
-                            let eased_strength = easing_function.ease(clamped_strength);
+                            let strength = calc_shape_modifier_strength(&noise_cache, falloff, modifier_falloff_noise, vertex_position, modifier, modifier_strength_limit, global_transform);
+                            let eased_strength = easing_function.ease(strength);
 
                             if let Some(operation) = operation {
                                 *val = apply_modifier(
                                     modifier_properties,
                                     operation,
                                     vertex_position,
-                                    shape_translation.xz(),
+                                    global_transform.translation().xz(),
                                     *val,
                                     global_transform,
                                     eased_strength,
@@ -502,6 +455,65 @@ fn update_terrain_heights(
 
         tile_rebuilt_events.send(TileHeightsRebuilt(tile));
     }
+}
+
+/// Returns the strength of the modifier.
+#[inline]
+fn calc_shape_modifier_strength(
+    noise_cache: &NoiseCache,
+    falloff: f32,
+    modifier_falloff_noise: Option<(&ModifierFalloffNoiseProperty, usize)>,
+    vertex_position: Vec2,
+    modifier: &ShapeModifier,
+    modifier_strength_limit: Option<&ModifierStrengthLimitProperty>,
+    global_transform: &GlobalTransform
+) -> f32 {
+    let vertex_local = global_transform
+        .affine()
+        .inverse()
+        .transform_point3(Vec3::new(
+            vertex_position.x,
+            0.0,
+            vertex_position.y,
+        ))
+        .xz();
+
+    let falloff = modifier_falloff_noise.map_or(falloff, |(falloff_noise, noise_index)| {
+        let normalized_vertex = global_transform.translation().xz() + vertex_local.normalize_or_zero();
+
+        falloff
+            + falloff_noise.noise.sample(
+                normalized_vertex.x,
+                normalized_vertex.y,
+                unsafe { noise_cache.get_by_index(noise_index) },
+            )
+    });
+
+    let distance = match modifier {
+        ShapeModifier::Circle { radius } => {
+            vertex_local.distance(Vec2::ZERO) - radius
+        }
+        ShapeModifier::Rectangle { x, z } => {
+            let rect_min = Vec2::new(-x, -z);
+            let rect_max = Vec2::new(*x, *z);
+
+            let d_x = (rect_min.x - vertex_local.x)
+                .max(vertex_local.x - rect_max.x)
+                .max(0.0);
+            let d_y = (rect_min.y - vertex_local.y)
+                .max(vertex_local.y - rect_max.y)
+                .max(0.0);
+
+            (d_x * d_x + d_y * d_y).sqrt()
+        }
+    };
+
+    let strength = 1.0 - (distance / falloff);
+    
+    strength.clamp(
+        0.0,
+        modifier_strength_limit.map_or(1.0, |modifier| modifier.0),
+    )
 }
 
 fn apply_modifier(

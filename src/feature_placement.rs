@@ -1,12 +1,12 @@
 use core::f32;
 use std::f32::consts::TAU;
-use bevy_transform::components::Transform;
+use bevy_transform::components::{Transform, GlobalTransform};
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_math::{IVec2, Quat, Vec2, Vec3, Vec3Swizzles};
 use bevy_log::info_span;
 use bevy_ecs::prelude::{
     on_event, Commands, Component, Entity, EventReader, IntoSystemConfigs,
-    Query, ReflectComponent, Res, Resource
+    Query, ReflectComponent, Res, ResMut, Resource
 };
 use bevy_hierarchy::DespawnRecursiveExt;
 use bevy_reflect::Reflect;
@@ -14,7 +14,7 @@ use bevy_reflect::Reflect;
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{
-    noise::{NoiseCache, NoiseFilterCondition, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
+    modifiers::{ModifierFalloffNoiseProperty, ShapeModifier, TerrainSplineCached, TileToModifierMapping}, noise::{NoiseCache, NoiseFilterCondition, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{distance_squared_to_line_segment, get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct FeaturePlacementPlugin;
@@ -29,7 +29,7 @@ impl Plugin for FeaturePlacementPlugin {
 
         app.init_resource::<TerrainFeatures>();
 
-        app.register_type::<SpawnedFeatures>();
+        app.register_type::<SpawnedFeatures>().register_type::<ShapeBlocksFeaturePlacement>();
     }
 }
 
@@ -160,6 +160,16 @@ impl Feature {
                 },
             })
     }
+}
+
+/// The shape blocks placing features within it's bounds.
+/// 
+/// Use to remove features from for example buildings.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct ShapeBlocksFeaturePlacement {
+    /// Feature layers which this shape blocks. 
+    pub layer: u64
 }
 
 pub struct FeatureGroup {
@@ -370,6 +380,126 @@ fn filter_features_by_collision(
         .collect()
 }
 
+fn filter_features_by_blocking_shapes(
+    tile: IVec2,
+    tile_size: f32,
+    tile_translation: Vec2,
+    tile_to_modifier: &TileToModifierMapping,
+    shape_modifiers_query: &Query<(&ShapeBlocksFeaturePlacement, &ShapeModifier, &GlobalTransform, Option<&ModifierFalloffNoiseProperty>)>,
+    spline_modifiers_query: &Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached)>,
+    feature_placements: &mut [Vec<FeaturePlacement>],
+    terrain_features: &TerrainFeatures,
+    noise_cache: &mut NoiseCache,
+) {
+    let _span = info_span!("Filter features by blocking shapes").entered();
+    
+    let shape_modifiers_in_tile = tile_to_modifier.shape.get(&tile);
+    let spline_modifiers_in_tile = tile_to_modifier.splines.get(&tile);
+
+    feature_placements.iter_mut().enumerate().for_each(|(feature_group, placements)| {
+        let feature_group = &terrain_features.feature_groups[feature_group];
+
+        if let Some(shape_modifiers_in_tile) = shape_modifiers_in_tile {
+            for entry in shape_modifiers_in_tile {
+                if let Ok((blocks_features, shape, global_transform, modifier_falloff_noise)) = shape_modifiers_query.get(entry.entity) {
+                    if blocks_features.layer & feature_group.belongs_to_layers != 0 {
+                        let modifier_falloff_noise = modifier_falloff_noise.map(|falloff_noise| {
+                            (
+                                falloff_noise,
+                                noise_cache.get_simplex_index(falloff_noise.noise.seed)
+                            )
+                        });
+    
+                        let mut offset_transform = Transform::from(*global_transform);
+                        offset_transform.translation -= Vec3::new(tile_translation.x, 0.0, tile_translation.y);
+                        let global_transform = GlobalTransform::from(offset_transform);
+                        
+                        placements.retain(|placement| {
+                            let overlaps_x = ((placement.transform.translation.x / tile_size) * 7.0) as u32;
+                            let overlap_y = ((placement.transform.translation.z / tile_size) * 7.0) as u32;
+                            let overlap_index = overlap_y * 8 + overlaps_x;
+                            
+                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                                return false;
+                            }
+
+                            let feature = &feature_group.features[placement.feature as usize];
+                            let feature_radius = feature.collision_radius * placement.transform.scale.xz().max_element();
+                            
+                            let vertex_local = global_transform
+                                .affine()
+                                .inverse()
+                                .transform_point3(placement.transform.translation.with_y(0.0))
+                                .xz();
+    
+                            let distance_offset = modifier_falloff_noise.map_or(0.0, |(falloff_noise, noise_index)| {
+                                let normalized_vertex = global_transform.translation().xz() + vertex_local;
+    
+                                falloff_noise.noise.sample(
+                                    normalized_vertex.x,
+                                    normalized_vertex.y,
+                                    unsafe { noise_cache.get_by_index(noise_index) },
+                                )
+                            });
+    
+                            let distance = match shape {
+                                ShapeModifier::Circle { radius } => {
+                                    vertex_local.distance(Vec2::ZERO) - radius
+                                }
+                                ShapeModifier::Rectangle { x, z } => {
+                                    let rect_min = Vec2::new(-x, -z);
+                                    let rect_max = Vec2::new(*x, *z);
+                        
+                                    let d_x = (rect_min.x - vertex_local.x)
+                                        .max(vertex_local.x - rect_max.x)
+                                        .max(0.0);
+                                    let d_y = (rect_min.y - vertex_local.y)
+                                        .max(vertex_local.y - rect_max.y)
+                                        .max(0.0);
+                                    
+                                    (d_x * d_x + d_y * d_y).sqrt()
+                                }
+                            };
+                            
+                            (distance - distance_offset - feature_radius) > 0.0
+                        });
+                    }
+                } 
+            }
+        }
+
+        if let Some(splines_in_tile) = spline_modifiers_in_tile {
+            for entry in splines_in_tile {
+                if let Ok((blocks_features, spline)) = spline_modifiers_query.get(entry.entity) {
+                    if blocks_features.layer & feature_group.belongs_to_layers != 0 {
+                        placements.retain(|placement| {
+                            let feature = &feature_group.features[placement.feature as usize];
+                            let feature_radius = feature.collision_radius * placement.transform.scale.xz().max_element();
+
+                            let placement_position = tile_translation + placement.transform.translation.xz();
+                            let mut distance = f32::INFINITY;
+
+                            for points in spline.points.windows(2) {
+                                let a_2d = points[0].xz();
+                                let b_2d = points[1].xz();
+
+                                let (new_distance, _) =
+                                    distance_squared_to_line_segment(a_2d, b_2d, placement_position);
+
+                                if new_distance < distance {
+                                    distance = new_distance;
+                                }
+                            }
+
+                            (distance.sqrt() - feature_radius) > 0.0
+                        });
+                    }
+                }
+            }
+        }
+    });
+}
+
 #[derive(Resource, Default)]
 pub struct TerrainFeatures {
     pub feature_groups: Vec<FeatureGroup>,
@@ -379,6 +509,7 @@ pub struct TerrainFeatures {
 pub struct FeaturePlacement {
     pub index: u32,
     pub feature: u32,
+    /// Tile local transform of the feature. 
     pub transform: Transform,
 }
 
@@ -444,9 +575,12 @@ fn update_features_on_tile_built(
     terrain_features: Res<TerrainFeatures>,
     terrain_settings: Res<TerrainSettings>,
     terrain_noise_layers: Res<TerrainNoiseSettings>,
-    noise_cache: Res<NoiseCache>,
+    mut noise_cache: ResMut<NoiseCache>,
     noise_index_cache: Res<NoiseIndexCache>,
     mut query: Query<(&Heights, &mut SpawnedFeatures, &TileBiomes)>,
+    blocking_shape_modifiers_query: Query<(&ShapeBlocksFeaturePlacement, &ShapeModifier, &GlobalTransform, Option<&ModifierFalloffNoiseProperty>)>,
+    blocking_spline_modifiers_query: Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached)>,
+    tile_to_modifier: Res<TileToModifierMapping>
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
         let _span = info_span!("Spawn features for tile").entered();
@@ -495,8 +629,20 @@ fn update_features_on_tile_built(
         let mut filtered_feature_placements =
             filter_features_by_collision(&terrain_features, feature_placements, Vec::default());
 
+        filter_features_by_blocking_shapes(
+            *tile,
+            terrain_settings.tile_size(),
+            tile_translation,
+            &tile_to_modifier,
+            &blocking_shape_modifiers_query,
+            &blocking_spline_modifiers_query,
+            &mut filtered_feature_placements,
+            &terrain_features,
+            &mut noise_cache,
+        );
+
         for (group_i, mut feature_placements) in filtered_feature_placements
-            .drain(..)
+            .into_iter()
             .enumerate()
             .filter(|(_, placements)| !placements.is_empty())
         {

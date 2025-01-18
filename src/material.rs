@@ -17,9 +17,8 @@ use bevy_transform::prelude::GlobalTransform;
 use bevy_reflect::{Reflect, prelude::ReflectDefault};
 
 use crate::{
-    distance_squared_to_line_segment, easing::EasingFunction, meshing::TerrainMeshRebuilt, modifiers::{
-        ModifierFalloffProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties,
-        TileToModifierMapping,
+    calc_shape_modifier_strength, distance_squared_to_line_segment, easing::EasingFunction, meshing::TerrainMeshRebuilt, modifiers::{
+        ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierStrengthLimitProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping
     }, noise::{NoiseCache, NoiseIndexCache, StrengthCombinator, TerrainNoiseSettings, TileBiomes}, terrain::{Terrain, TileToTerrain}, utils::{get_height_at_position_in_quad, get_normal_at_position_in_quad, index_to_x_z, index_to_x_z_simd}, Heights, TerrainSets, TerrainSettings
 };
 
@@ -503,8 +502,12 @@ fn update_terrain_texture_maps(
     shape_modifier_query: Query<(
         &TextureModifierOperation,
         &ShapeModifier,
-        Option<&ModifierFalloffProperty>,
-        Option<&TextureModifierFalloffProperty>,
+        (
+            Option<&ModifierFalloffProperty>,
+            Option<&TextureModifierFalloffProperty>,
+            Option<&ModifierFalloffNoiseProperty>,
+        ),
+        Option<&ModifierStrengthLimitProperty>,
         &GlobalTransform,
     )>,
     spline_query: Query<(
@@ -534,14 +537,14 @@ fn update_terrain_texture_maps(
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
-    noise_resources: (
+    mut noise_resources: (
         Res<TerrainNoiseSettings>,
-        Res<NoiseCache>,
+        ResMut<NoiseCache>,
         Res<NoiseIndexCache>
     ), 
     mut needs_noise: Local<bool>,
     mut data_samples: Local<Vec<Vec4>>,
-    mut biome_samples: Local<Vec<Vec4>>
+    mut biome_samples: Local<Vec<Vec4>>,
 ) {
     if texturing_settings.1.is_changed() {
         *needs_noise = texturing_settings.1.rules.iter().any(|rule| rule.evaluators.iter().any(|evaulator| evaulator.needs_noise()));
@@ -769,8 +772,12 @@ fn update_terrain_texture_maps(
                     if let Ok((
                         texture_modifier,
                         shape_modifier,
-                        modifier_falloff,
-                        texture_modifier_falloff,
+                        (
+                            modifier_falloff,
+                            texture_modifier_falloff,
+                            modifier_falloff_noise
+                        ),
+                        modifier_strength_limit,
                         global_transform,
                     )) = shape_modifier_query.get(entry.entity)
                     {
@@ -785,88 +792,41 @@ fn update_terrain_texture_maps(
                         };
 
                         let mut applied = false;
-                        let shape_translation = global_transform.translation().xz();
                         let (falloff, easing_function) = texture_modifier_falloff
                             .map(|falloff| (falloff.falloff, falloff.easing_function))
                             .or(modifier_falloff
                                 .map(|falloff| (falloff.falloff, falloff.easing_function)))
                             .unwrap_or((f32::EPSILON, EasingFunction::Linear));
 
-                        match shape_modifier {
-                            ShapeModifier::Circle { radius } => {
-                                for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                                    let (x, z) = index_to_x_z(i, resolution as usize);
+                        // Cache the noise index.
+                        let modifier_falloff_noise = modifier_falloff_noise.map(|falloff_noise| {
+                            (
+                                falloff_noise,
+                                noise_resources.1.get_simplex_index(falloff_noise.noise.seed),
+                            )
+                        });
 
-                                    let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_index = overlap_y * 8 + overlaps_x;
-                                    if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                        continue;
-                                    }
+                        for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
+                            let (x, z) = index_to_x_z(i, resolution as usize);
 
-                                    let pixel_position = terrain_translation
-                                        + Vec2::new(x as f32 * scale, z as f32 * scale);
-
-                                    let strength = (1.0
-                                        - ((pixel_position.distance(shape_translation) - radius)
-                                            / falloff))
-                                        .clamp(0.0, texture_modifier.max_strength);
-
-                                    let eased_strength = easing_function.ease(strength);
-
-                                    // Apply texture.
-                                    let scaled_strength = (eased_strength * 255.0) as u8;
-                                    if scaled_strength > 0 {
-                                        apply_texture(val, texture_channel, scaled_strength);
-                                        applied = true;
-                                    }
-                                }
+                            let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
+                            let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
+                            let overlap_index = overlap_y * 8 + overlaps_x;
+                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                                continue;
                             }
-                            ShapeModifier::Rectangle { x, z } => {
-                                let rect_min = Vec2::new(-x, -z);
-                                let rect_max = Vec2::new(*x, *z);
 
-                                for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                                    let (x, z) = index_to_x_z(i, resolution as usize);
+                            let pixel_position = terrain_translation
+                                + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-                                    let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                                    let overlap_index = overlap_y * 8 + overlaps_x;
-                                    if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                        continue;
-                                    }
+                            let strength = calc_shape_modifier_strength(&noise_resources.1, falloff, modifier_falloff_noise, pixel_position, shape_modifier, modifier_strength_limit, global_transform);
+                            let eased_strength = easing_function.ease(strength);
 
-                                    let pixel_position = terrain_translation
-                                        + Vec2::new(x as f32 * scale, z as f32 * scale);
-                                    let pixel_local = global_transform
-                                        .affine()
-                                        .inverse()
-                                        .transform_point3(Vec3::new(
-                                            pixel_position.x,
-                                            0.0,
-                                            pixel_position.y,
-                                        ))
-                                        .xz();
-
-                                    let d_x = (rect_min.x - pixel_local.x)
-                                        .max(pixel_local.x - rect_max.x)
-                                        .max(0.0);
-                                    let d_y = (rect_min.y - pixel_local.y)
-                                        .max(pixel_local.y - rect_max.y)
-                                        .max(0.0);
-                                    let d_d = (d_x * d_x + d_y * d_y).sqrt();
-
-                                    let strength = (1.0 - (d_d / falloff))
-                                        .clamp(0.0, texture_modifier.max_strength);
-                                    let eased_strength = easing_function.ease(strength);
-
-                                    // Apply texture.
-                                    let scaled_strength = (eased_strength * 255.0) as u8;
-                                    if scaled_strength > 0 {
-                                        apply_texture(val, texture_channel, scaled_strength);
-                                        applied = true;
-                                    }
-                                }
+                            // Apply texture.
+                            let scaled_strength = (eased_strength * 255.0) as u8;
+                            if scaled_strength > 0 {
+                                apply_texture(val, texture_channel, scaled_strength);
+                                applied = true;
                             }
                         }
 

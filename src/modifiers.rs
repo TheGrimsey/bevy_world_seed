@@ -26,6 +26,7 @@ pub enum ShapeModifier {
     Rectangle { x: f32, z: f32 },
 }
 
+
 /// Determines the falloff distance for operations.
 ///
 /// Affects the strength falloff of height & texture operators

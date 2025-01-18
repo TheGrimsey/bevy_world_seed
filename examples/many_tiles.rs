@@ -23,20 +23,13 @@ use bevy_lookup_curve::{
     LookupCurve,
 };
 use bevy_world_seed::{
-    easing::EasingFunction,
-    feature_placement::{
-        Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureScaleRandomization, FeatureSpawnStrategy, TerrainFeatures
-    },
-    material::{
-        GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule,
-        TexturingRuleEvaluator,
-    },
-    meshing::TerrainMeshRebuildQueue,
-    noise::{
-        calc_filter_strength, BiomeSettings, DomainWarping, StrengthCombinator, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, TerrainNoiseSettings, TerrainNoiseSplineLayer
-    },
-    terrain::{Terrain, TileToTerrain},
-    RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings,
+    easing::EasingFunction, feature_placement::{
+        Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureScaleRandomization, FeatureSpawnStrategy, ShapeBlocksFeaturePlacement, TerrainFeatures
+    }, material::{
+        GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator
+    }, meshing::TerrainMeshRebuildQueue, modifiers::{ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority, ModifierTileAabb, ShapeModifier, ShapeModifierBundle}, noise::{
+        calc_filter_strength, BiomeSettings, DomainWarping, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, StrengthCombinator, TerrainNoiseSettings, TerrainNoiseSplineLayer
+    }, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
 };
 
 fn main() {
@@ -441,6 +434,39 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
             ));
         }
     }
+
+    commands.spawn((
+        ShapeModifierBundle {
+            aabb: ModifierTileAabb::default(),
+            shape: ShapeModifier::Circle { radius: 4.0 },
+            properties: ModifierHeightProperties {
+                allow_lowering: true,
+                allow_raising: true,
+            },
+            priority: ModifierPriority(1),
+            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                Vec3::new(10.0, 5.0, 48.0),
+            )),
+        },
+        ModifierFalloffProperty {
+            falloff: 4.0,
+            easing_function: EasingFunction::CubicInOut,
+        },
+        ModifierFalloffNoiseProperty {
+            noise: LayerNoiseSettings {
+                amplitude: 2.0,
+                frequency: 1.0,
+                seed: 5,
+                domain_warp: vec![],
+                scaling: NoiseScaling::Normalized
+            },
+        },
+        ModifierHeightOperation::Set,
+        Name::new("Modifier (Circle)"),
+        ShapeBlocksFeaturePlacement {
+            layer: 1
+        }
+    ));
 }
 
 pub struct NoiseDebugWindow;
