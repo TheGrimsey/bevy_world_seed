@@ -14,7 +14,7 @@ use bevy_reflect::Reflect;
 use turborand::{rng::Rng, SeededCore, TurboRand};
 
 use crate::{
-    modifiers::{ModifierFalloffNoiseProperty, ShapeModifier, TerrainSplineCached, TileToModifierMapping}, noise::{NoiseCache, NoiseFilterCondition, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{distance_squared_to_line_segment, get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
+    modifiers::{ModifierFalloffNoiseProperty, ShapeModifier, TerrainSplineCached, TerrainSplineProperties, TileToModifierMapping}, noise::{NoiseCache, NoiseFilterCondition, NoiseIndexCache, TerrainNoiseSettings, TileBiomes}, terrain::TileToTerrain, utils::{distance_squared_to_line_segment, get_flat_normal_at_position_in_tile, get_height_at_position_in_tile}, Heights, TerrainSets, TerrainSettings, TileHeightsRebuilt
 };
 
 pub struct FeaturePlacementPlugin;
@@ -386,7 +386,7 @@ fn filter_features_by_blocking_shapes(
     tile_translation: Vec2,
     tile_to_modifier: &TileToModifierMapping,
     shape_modifiers_query: &Query<(&ShapeBlocksFeaturePlacement, &ShapeModifier, &GlobalTransform, Option<&ModifierFalloffNoiseProperty>)>,
-    spline_modifiers_query: &Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached)>,
+    spline_modifiers_query: &Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached, &TerrainSplineProperties)>,
     feature_placements: &mut [Vec<FeaturePlacement>],
     terrain_features: &TerrainFeatures,
     noise_cache: &mut NoiseCache,
@@ -424,7 +424,7 @@ fn filter_features_by_blocking_shapes(
                             let overlap_index = overlap_y * 8 + overlaps_x;
                             
                             if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                return false;
+                                return true;
                             }
 
                             let feature = &feature_group.features[placement.feature as usize];
@@ -437,7 +437,7 @@ fn filter_features_by_blocking_shapes(
                                 .xz();
     
                             let distance_offset = modifier_falloff_noise.map_or(0.0, |(falloff_noise, noise_index)| {
-                                let normalized_vertex = global_transform.translation().xz() + vertex_local;
+                                let normalized_vertex = global_transform.translation().xz() + vertex_local.normalize_or_zero();
     
                                 falloff_noise.noise.sample(
                                     normalized_vertex.x,
@@ -474,9 +474,17 @@ fn filter_features_by_blocking_shapes(
 
         if let Some(splines_in_tile) = spline_modifiers_in_tile {
             for entry in splines_in_tile {
-                if let Ok((blocks_features, spline)) = spline_modifiers_query.get(entry.entity) {
+                if let Ok((blocks_features, spline, spline_properties)) = spline_modifiers_query.get(entry.entity) {
                     if blocks_features.layer & feature_group.belongs_to_layers != 0 {
                         placements.retain(|placement| {
+                            let overlaps_x = ((placement.transform.translation.x / tile_size) * 7.0) as u32;
+                            let overlap_y = ((placement.transform.translation.z / tile_size) * 7.0) as u32;
+                            let overlap_index = overlap_y * 8 + overlaps_x;
+                            
+                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                                return true;
+                            }
+
                             let feature = &feature_group.features[placement.feature as usize];
                             let feature_radius = feature.collision_radius * placement.transform.scale.xz().max_element();
 
@@ -495,7 +503,7 @@ fn filter_features_by_blocking_shapes(
                                 }
                             }
 
-                            (distance.sqrt() - feature_radius) > 0.0
+                            (distance.sqrt() - spline_properties.half_width - feature_radius) > 0.0
                         });
                     }
                 }
@@ -583,7 +591,7 @@ fn update_features_on_tile_built(
     noise_index_cache: Res<NoiseIndexCache>,
     mut query: Query<(&Heights, &mut SpawnedFeatures, &TileBiomes)>,
     blocking_shape_modifiers_query: Query<(&ShapeBlocksFeaturePlacement, &ShapeModifier, &GlobalTransform, Option<&ModifierFalloffNoiseProperty>)>,
-    blocking_spline_modifiers_query: Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached)>,
+    blocking_spline_modifiers_query: Query<(&ShapeBlocksFeaturePlacement, &TerrainSplineCached, &TerrainSplineProperties)>,
     tile_to_modifier: Res<TileToModifierMapping>
 ) {
     for TileHeightsRebuilt(tile) in events.read() {
