@@ -392,9 +392,13 @@ fn filter_features_by_blocking_shapes(
     noise_cache: &mut NoiseCache,
 ) {
     let _span = info_span!("Filter features by blocking shapes").entered();
-    
+
     let shape_modifiers_in_tile = tile_to_modifier.shape.get(&tile);
     let spline_modifiers_in_tile = tile_to_modifier.splines.get(&tile);
+
+    if shape_modifiers_in_tile.is_none_or(|entries| entries.is_empty()) && spline_modifiers_in_tile.is_none_or(|entries| entries.is_empty()) {
+        return;
+    }
 
     feature_placements.iter_mut().enumerate().for_each(|(feature_group, placements)| {
         let feature_group = &terrain_features.feature_groups[feature_group];
