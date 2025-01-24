@@ -3,9 +3,9 @@ use bevy_ecs::prelude::{
     ResMut, Resource
 };
 use bevy_app::prelude::{App, Plugin, PostUpdate};
-use bevy_asset::{Assets, Handle};
+use bevy_asset::Assets;
 use bevy_render::{
-    prelude::Mesh,
+    prelude::{Mesh, Mesh3d},
     mesh::{Indices, PrimitiveTopology},
     primitives::Aabb,
     render_asset::RenderAssetUsages,
@@ -63,7 +63,7 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut query: Query<(Entity, &Heights, Option<&Handle<Mesh>>, &Holes, &mut Aabb)>,
+    mut query: Query<(Entity, &Heights, Option<&Mesh3d>, &Holes, &mut Aabb)>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -151,7 +151,7 @@ fn update_mesh_from_heights(
             } else {
                 let new_handle = meshes.add(mesh);
 
-                commands.entity(entity).insert((new_handle,));
+                commands.entity(entity).insert(Mesh3d(new_handle));
             }
 
             let (min, max) = heights

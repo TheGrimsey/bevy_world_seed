@@ -3,7 +3,7 @@ use bevy_color::{
     palettes::css::{BLUE, DARK_CYAN, LIGHT_CYAN},
     Color,
 };
-use bevy_math::{Quat, Vec2, Vec3, Vec3Swizzles};
+use bevy_math::{Isometry3d, Quat, Vec2, Vec3, Vec3Swizzles};
 use bevy_ecs::prelude::{Query, Resource, Res, IntoSystemConfigs, ReflectResource};
 use bevy_transform::prelude::GlobalTransform;
 use bevy_gizmos::prelude::Gizmos;
@@ -70,31 +70,39 @@ fn debug_draw_terrain_modifiers(
             match shape {
                 ShapeModifier::Circle { radius } => {
                     gizmos.ellipse(
-                        translation,
-                        rotation,
+                        Isometry3d {
+                            rotation,
+                            translation: translation.into(),
+                        },
                         scale.xz() * *radius,
                         Color::from(LIGHT_CYAN),
                     );
 
                     // Falloff.
                     gizmos.ellipse(
-                        translation,
-                        rotation,
+                        Isometry3d {
+                            rotation,
+                            translation: translation.into(),
+                        },
                         scale.xz() * (falloff + radius),
                         Color::from(DARK_CYAN),
                     );
                 }
                 ShapeModifier::Rectangle { x, z } => {
                     gizmos.rect(
-                        translation,
-                        rotation,
+                        Isometry3d {
+                            rotation,
+                            translation: translation.into(),
+                        },
                         scale.xz() * Vec2::new(*x, *z) * 2.0,
                         Color::from(LIGHT_CYAN),
                     );
 
                     gizmos.rect(
-                        translation,
-                        rotation,
+                        Isometry3d {
+                            rotation,
+                            translation: translation.into(),
+                        },
                         scale.xz() * (Vec2::new(*x, *z) * 2.0 + falloff),
                         Color::from(DARK_CYAN),
                     );

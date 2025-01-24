@@ -6,14 +6,15 @@ use bevy::{
     color::Color,
     core::Name,
     math::Vec3,
-    pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
+    pbr::{DirectionalLight, StandardMaterial},
     prelude::{
-        default, BuildChildren, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Cuboid,
-        Mesh, Res, ResMut, Transform, TransformBundle, VisibilityBundle,
+        default, BuildChildren, Commands, CubicCardinalSpline, CubicCurve, CubicGenerator, Cuboid, Mesh, Mesh3d, Res, ResMut, Transform,
     },
     DefaultPlugins,
 };
 use bevy_editor_pls::EditorPlugin;
+use bevy_hierarchy::ChildBuild;
+use bevy_pbr::MeshMaterial3d;
 use bevy_world_seed::{
     easing::EasingFunction,
     material::{
@@ -23,8 +24,8 @@ use bevy_world_seed::{
     modifiers::{
         ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierHeightOperation,
         ModifierHeightProperties, ModifierHoleOperation, ModifierNoiseOperation, ModifierPriority,
-        ModifierStrengthLimitProperty, ModifierTileAabb, ShapeModifier, ShapeModifierBundle,
-        TerrainSplineBundle, TerrainSplineCached, TerrainSplineProperties, TerrainSplineShape,
+        ModifierStrengthLimitProperty, ShapeModifier, ShapeModifierBundle,
+        TerrainSplineBundle, TerrainSplineProperties, TerrainSplineShape,
     },
     noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, StrengthCombinator, TerrainNoiseSettings},
     snap_to_terrain::SnapToTerrain,
@@ -112,18 +113,15 @@ fn spawn_terrain(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((
-        DirectionalLightBundle {
-            directional_light: DirectionalLight {
-                color: Color::WHITE,
-                illuminance: 1000.0,
-                shadows_enabled: true,
-                ..default()
-            },
-            transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
-                .looking_at(Vec3::ZERO, Vec3::Y)
-                .with_translation(Vec3::ZERO),
+        DirectionalLight {
+            color: Color::WHITE,
+            illuminance: 1000.0,
+            shadows_enabled: true,
             ..default()
         },
+        Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
+                .looking_at(Vec3::ZERO, Vec3::Y)
+                .with_translation(Vec3::ZERO),
         Name::new("Directional Light"),
     ));
 
@@ -135,17 +133,15 @@ fn spawn_terrain(
         Vec3::new(30.0, 1.0, 30.0),
         Vec3::new(40.0, 1.0, 48.0),
     ])
-    .to_curve();
+    .to_curve().expect("Couldn't create spline curve.");
 
     // Spawn a spline modifier that also applies a texture.
     commands.spawn((
         TerrainSplineBundle {
-            tile_aabb: ModifierTileAabb::default(),
             spline: TerrainSplineShape { curve },
             properties: TerrainSplineProperties { half_width: 3.0 },
-            spline_cached: TerrainSplineCached::default(),
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::default(),
+            transform: Transform::default(),
         },
         // Adding `TextureModifierOperation` so this spline applies a texture.
         TextureModifierOperation {
@@ -168,16 +164,15 @@ fn spawn_terrain(
     // Spawn a circle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 4.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+            transform: Transform::from_translation(
                 Vec3::new(10.0, 5.0, 48.0),
-            )),
+            ),
         },
         ModifierStrengthLimitProperty(0.9),
         ModifierFalloffProperty {
@@ -206,16 +201,15 @@ fn spawn_terrain(
     // Spawn a circle hole punching modifier.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 2.9 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+            transform: Transform::from_translation(
                 Vec3::new(40.0, 2.0, 6.0),
-            )),
+            ),
         },
         ModifierHoleOperation { invert: false },
         Name::new("Modifier (Circle Hole)"),
@@ -224,16 +218,15 @@ fn spawn_terrain(
     // Spawn a rectangle modifier that also applies a texture.
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Rectangle { x: 2.5, z: 5.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(2),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+            transform: Transform::from_translation(
                 Vec3::new(32.0, 5.0, 50.0),
-            )),
+            ),
         },
         ModifierFalloffProperty {
             falloff: 4.0,
@@ -263,23 +256,17 @@ fn spawn_terrain(
     // Spawn a cube that snaps to terrain height.
     commands
         .spawn((
-            PbrBundle {
-                mesh: mesh.clone(),
-                material: material.clone(),
-                transform: Transform::from_translation(Vec3::new(16.0, 0.0, 16.0)),
-                ..default()
-            },
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(material.clone()),
+            Transform::from_translation(Vec3::new(16.0, 0.0, 16.0)),
             SnapToTerrain { y_offset: 0.5, align_to_terrain_normal: true },
             Name::new("Snap To Terrain"),
         ))
         .with_children(|child_builder| {
             child_builder.spawn((
-                PbrBundle {
-                    mesh: mesh.clone(),
-                    material: material.clone(),
-                    transform: Transform::from_translation(Vec3::new(4.0, 0.0, 0.0)),
-                    ..default()
-                },
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(Vec3::new(4.0, 0.0, 0.0)),
                 SnapToTerrain { y_offset: 0.5, align_to_terrain_normal: false },
                 Name::new("Snap To Terrain (Child 1)"),
             ));
@@ -310,41 +297,37 @@ fn spawn_terrain(
     // Spawn terrain tiles.
     commands.spawn((
         Terrain::default(),
-        TransformBundle::default(),
-        VisibilityBundle::default(),
+        Transform::default(),
         Name::new("Terrain"),
     ));
 
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+        Transform::from_translation(Vec3::new(
             terrain_settings.tile_size(),
             0.0,
             0.0,
-        ))),
-        VisibilityBundle::default(),
+        )),
         Name::new("Terrain (1, 0))"),
     ));
 
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+        Transform::from_translation(Vec3::new(
             0.0,
             0.0,
             terrain_settings.tile_size(),
-        ))),
-        VisibilityBundle::default(),
+        )),
         Name::new("Terrain (0, 1)"),
     ));
 
     commands.spawn((
         Terrain::default(),
-        TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+        Transform::from_translation(Vec3::new(
             terrain_settings.tile_size(),
             0.0,
             terrain_settings.tile_size(),
-        ))),
-        VisibilityBundle::default(),
+        )),
         Name::new("Terrain (1, 1)"),
     ));
 }

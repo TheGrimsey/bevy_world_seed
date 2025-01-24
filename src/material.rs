@@ -4,17 +4,17 @@ use bevy_app::{App, Plugin, PostUpdate};
 use bevy_asset::{load_internal_asset, Asset, AssetApp, Assets, Handle};
 use bevy_log::{info, info_span};
 use bevy_math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4};
-use bevy_pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial};
+use bevy_pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d, StandardMaterial};
 use bevy_ecs::prelude::{Commands, Component, Entity, EventReader, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent, ReflectResource, Local, DetectChanges};
 use bevy_render::{
     primitives::Aabb,
     render_asset::RenderAssetUsages,
     render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
-    texture::TextureFormatPixelInfo,
-    prelude::{Mesh, Image, Shader}
+    prelude::{Mesh, Shader, Mesh3d}
 };
 use bevy_transform::prelude::GlobalTransform;
 use bevy_reflect::{Reflect, prelude::ReflectDefault};
+use bevy_image::Image;
 
 use crate::{
     calc_shape_modifier_strength, distance_squared_to_line_segment, easing::EasingFunction, meshing::TerrainMeshRebuilt, modifiers::{
@@ -442,11 +442,11 @@ fn insert_texture_map(
     mut commands: Commands,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
     mut images: ResMut<Assets<Image>>,
-    query: Query<Entity, (With<Terrain>, Without<Handle<TerrainMaterialExtended>>)>,
+    query: Query<Entity, (With<Terrain>, Without<MeshMaterial3d<TerrainMaterialExtended>>)>,
 ) {
     let resolution = texture_settings.resolution();
     let texture_format = TextureFormat::Rgba8Unorm;
-    let size = texture_format.pixel_size() * resolution as usize * resolution as usize;
+    let size = (texture_format.block_copy_size(None).unwrap() * resolution * resolution) as usize;
 
     query.iter().for_each(|entity| {
         let image = Image::new(
@@ -479,7 +479,7 @@ fn insert_texture_map(
 
         commands
             .entity(entity)
-            .insert((material_handle, Aabb::default()));
+            .insert((MeshMaterial3d(material_handle), Aabb::default()));
     });
 }
 
@@ -519,8 +519,8 @@ fn update_terrain_texture_maps(
     )>,
     tiles_query: Query<(
         &Heights,
-        &Handle<TerrainMaterialExtended>,
-        &Handle<Mesh>,
+        &MeshMaterial3d<TerrainMaterialExtended>,
+        &Mesh3d,
         &Terrain,
         &Aabb,
         &TileBiomes

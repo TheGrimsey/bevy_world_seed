@@ -3,12 +3,12 @@ use std::num::NonZeroU8;
 use bevy::{
     app::{App, First, Last, Startup},
     math::{IVec2, Vec2, Vec3},
-    prelude::{Commands, Query, Res, Transform, TransformBundle, TransformPlugin},
+    prelude::{Commands, Query, Res, Transform, TransformPlugin},
     MinimalPlugins,
 };
 use bevy_world_seed::{
     modifiers::{
-        ModifierHeightOperation, ModifierHeightProperties, ModifierPriority, ModifierTileAabb,
+        ModifierHeightOperation, ModifierHeightProperties, ModifierPriority,
         ShapeModifier, ShapeModifierBundle,
     },
     terrain::{Terrain, TileToTerrain},
@@ -50,11 +50,11 @@ fn spawn_terrain_tiles(mut commands: Commands, terrain_settings: Res<TerrainSett
         for z in -terrain_range..terrain_range {
             commands.spawn((
                 Terrain::default(),
-                TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+                Transform::from_translation(Vec3::new(
                     x as f32 * terrain_settings.tile_size(),
                     0.0,
                     z as f32 * terrain_settings.tile_size(),
-                ))),
+                )),
             ));
         }
     }
@@ -76,7 +76,6 @@ fn test_circle_modifier_applies() {
             // Does not have falloff.
             commands.spawn((
                 ShapeModifierBundle {
-                    aabb: ModifierTileAabb::default(),
                     shape: ShapeModifier::Circle {
                         // Size of the tile.
                         radius: tile_size / 2.0,
@@ -86,9 +85,9 @@ fn test_circle_modifier_applies() {
                         allow_raising: true,
                     },
                     priority: ModifierPriority(1),
-                    transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                    transform: Transform::from_translation(
                         Vec3::new(tile_size / 2.0, circle_height, tile_size / 2.0),
-                    )),
+                    ),
                 },
                 ModifierHeightOperation::Set,
             ));
@@ -145,7 +144,6 @@ fn test_rectangle_modifier_applies() {
             // Does not have falloff.
             commands.spawn((
                 ShapeModifierBundle {
-                    aabb: ModifierTileAabb::default(),
                     shape: ShapeModifier::Rectangle {
                         // Size of the tile.
                         x: tile_size / 2.0,
@@ -156,9 +154,9 @@ fn test_rectangle_modifier_applies() {
                         allow_raising: true,
                     },
                     priority: ModifierPriority(1),
-                    transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+                    transform: Transform::from_translation(
                         Vec3::new(tile_size / 2.0, modifier_height, tile_size / 2.0),
-                    )),
+                    ),
                 },
                 ModifierHeightOperation::Set,
             ));

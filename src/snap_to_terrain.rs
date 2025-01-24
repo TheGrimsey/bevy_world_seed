@@ -24,7 +24,7 @@ impl Plugin for TerrainSnapToTerrainPlugin {
             (
                 snap_on_added,
                 update_snap_entity_tile,
-                snap_on_tile_rebuilt.run_if(on_event::<TileHeightsRebuilt>()),
+                snap_on_tile_rebuilt.run_if(on_event::<TileHeightsRebuilt>),
                 update_snap_on_transform,
             )
                 .chain()

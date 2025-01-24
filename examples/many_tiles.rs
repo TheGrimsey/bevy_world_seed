@@ -7,9 +7,9 @@ use bevy::{
     core::Name,
     diagnostic::FrameTimeDiagnosticsPlugin,
     math::{Vec3, Vec3Swizzles},
-    pbr::{DirectionalLight, DirectionalLightBundle, PbrBundle, StandardMaterial},
+    pbr::{DirectionalLight, StandardMaterial},
     prelude::{
-        default, BuildChildren, Commands, Cone, Cuboid, GlobalTransform, Mesh, PluginGroup, Res, ResMut, Transform, TransformBundle, VisibilityBundle, With, World
+        default, BuildChildren, Commands, Cone, Cuboid, GlobalTransform, Mesh, Mesh3d, PluginGroup, Res, ResMut, Transform, With, World, MeshMaterial3d
     },
     DefaultPlugins,
 };
@@ -27,7 +27,7 @@ use bevy_world_seed::{
         Feature, FeatureDespawnStrategy, FeatureGroup, FeaturePlacementCondition, FeatureScaleRandomization, FeatureSpawnStrategy, ShapeBlocksFeaturePlacement, TerrainFeatures
     }, material::{
         GlobalTexturingRules, TerrainTextureRebuildQueue, TerrainTexturingSettings, TexturingRule, TexturingRuleEvaluator
-    }, meshing::TerrainMeshRebuildQueue, modifiers::{ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority, ModifierTileAabb, ShapeModifier, ShapeModifierBundle}, noise::{
+    }, meshing::TerrainMeshRebuildQueue, modifiers::{ModifierFalloffNoiseProperty, ModifierFalloffProperty, ModifierHeightOperation, ModifierHeightProperties, ModifierPriority, ShapeModifier, ShapeModifierBundle}, noise::{
         calc_filter_strength, BiomeSettings, DomainWarping, FilterComparingTo, LayerNoiseSettings, LayerOperation, NoiseCache, NoiseFilter, NoiseFilterCondition, NoiseGroup, NoiseIndexCache, NoiseLayer, NoiseScaling, StrengthCombinator, TerrainNoiseSettings, TerrainNoiseSplineLayer
     }, terrain::{Terrain, TileToTerrain}, RebuildTile, TerrainHeightRebuildQueue, TerrainPlugin, TerrainSettings
 };
@@ -339,12 +339,11 @@ fn insert_rules(
         move |commands, terrain_entity, placements, spawned_entities| {
             spawned_entities.extend(placements.iter().map(|placement| {
                 commands
-                    .spawn(PbrBundle {
-                        mesh: cube_mesh_handle.clone(),
-                        material: blue_material_handle.clone(),
-                        transform: placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale),
-                        ..default()
-                    })
+                    .spawn((
+                        Mesh3d(cube_mesh_handle.clone()),
+                        MeshMaterial3d(blue_material_handle.clone()),
+                        placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale)
+                    ))
                     .set_parent(terrain_entity)
                     .id()
             }));
@@ -355,12 +354,11 @@ fn insert_rules(
         move |commands, terrain_entity, placements, spawned_entities| {
             spawned_entities.extend(placements.iter().map(|placement| {
                 commands
-                    .spawn(PbrBundle {
-                        mesh: red_cube_mesh_handle.clone(),
-                        material: red_material_handle.clone(),
-                        transform: placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale),
-                        ..default()
-                    })
+                    .spawn((
+                        Mesh3d(red_cube_mesh_handle.clone()),
+                        MeshMaterial3d(red_material_handle.clone()),
+                        placement.transform.with_translation(placement.transform.translation + Vec3::new(0.0, 0.5, 0.0) * placement.transform.scale)
+                    ))
                     .set_parent(terrain_entity)
                     .id()
             }));
@@ -405,18 +403,17 @@ fn insert_rules(
 }
 
 fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>) {
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        DirectionalLight {
             color: Color::WHITE,
             illuminance: 1000.0,
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
+        Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
             .looking_at(Vec3::ZERO, Vec3::Y)
-            .with_translation(Vec3::ZERO),
-        ..default()
-    });
+            .with_translation(Vec3::ZERO)
+    ));
 
     let terrain_range = 15;
 
@@ -424,12 +421,11 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
         for z in -terrain_range..terrain_range {
             commands.spawn((
                 Terrain::default(),
-                TransformBundle::from_transform(Transform::from_translation(Vec3::new(
+                Transform::from_translation(Vec3::new(
                     x as f32 * terrain_settings.tile_size(),
                     0.0,
                     z as f32 * terrain_settings.tile_size(),
-                ))),
-                VisibilityBundle::default(),
+                )),
                 Name::new(format!("Terrain ({x},{z}")),
             ));
         }
@@ -437,16 +433,15 @@ fn spawn_terrain(mut commands: Commands, terrain_settings: Res<TerrainSettings>)
 
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 4.0 },
             properties: ModifierHeightProperties {
                 allow_lowering: true,
                 allow_raising: true,
             },
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+            transform: Transform::from_translation(
                 Vec3::new(10.0, 5.0, 48.0),
-            )),
+            ),
         },
         ModifierFalloffProperty {
             falloff: 4.0,
@@ -586,7 +581,7 @@ impl EditorWindow for NoiseDebugWindow {
 
                 let strength = calc_filter_strength(translation.xz(), &group.filters, group.filter_combinator, noise_settings, noise_cache, &data, &[], &noise_index_cache.spline_index_cache);
 
-                egui::CollapsingHeader::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).id_source(format!("group_{i}")).show(ui, |ui| {
+                egui::CollapsingHeader::new(format!("GROUP {i}: {noise:.3} ({strength:.3})")).id_salt(format!("group_{i}")).show(ui, |ui| {
                     unsafe {
                         for (i,layer) in group.layers.iter().enumerate() {
                             let strength = calc_filter_strength(translation.xz(), &layer.filters, layer.filter_combinator, noise_settings, noise_cache, &data, &[], &noise_index_cache.spline_index_cache);

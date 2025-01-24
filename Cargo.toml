@@ -12,46 +12,47 @@ readme = "README.md"
 
 [features]
 count_samples = []
-debug_draw = ["rendering", "bevy/bevy_gizmos", "dep:bevy_color"]
-rendering = ["dep:bevy_render", "dep:bevy_pbr"]
+debug_draw = ["rendering", "bevy/bevy_gizmos", "dep:bevy_color", "dep:bevy_gizmos"]
+rendering = ["dep:bevy_render", "dep:bevy_pbr", "dep:bevy_image"]
 serialize = ["dep:serde"]
 default = ["rendering", "debug_draw"]
 
 [dependencies]
-bevy_app = { version = "0.14" }
-bevy_asset = { version = "0.14" }
-bevy_math = { version = "0.14" }
-bevy_ecs = { version = "0.14" }
-bevy_transform = { version = "0.14" }
-bevy_hierarchy = {version = "0.14" }
-bevy_gizmos = { version = "0.14" }
-bevy_reflect = { version = "0.14" }
-bevy_log ={ version = "0.14" }
-bevy_derive = { version = "0.14" }
-bevy_utils = { version = "0.14" }
+bevy_app = { version = "0.15" }
+bevy_asset = { version = "0.15" }
+bevy_math = { version = "0.15" }
+bevy_ecs = { version = "0.15" }
+bevy_transform = { version = "0.15" }
+bevy_hierarchy = { version = "0.15" }
+bevy_reflect = { version = "0.15" }
+bevy_log ={ version = "0.15" }
+bevy_derive = { version = "0.15" }
+bevy_utils = { version = "0.15" }
 
-bevy_render = { version = "0.14", optional = true }
-bevy_pbr = { version = "0.14", optional = true }
-bevy_color = {version = "0.14", optional = true }
+bevy_gizmos = { version = "0.15", optional = true }
+bevy_render = { version = "0.15", optional = true }
+bevy_image = { version = "0.15", optional = true }
+bevy_pbr = { version = "0.15", optional = true }
+bevy_color = {version = "0.15", optional = true }
 
-bevy_lookup_curve = { version = "0.5", default-features = false, features = ["bevy_asset"] }
+bevy_lookup_curve = { version = "0.6", default-features = false, features = ["bevy_asset"] }
 fixedbitset = "0.5"
 noise = { version = "0.9", default-features = false }
 serde = { version = "1", optional = true }
 turborand = "0.10.1"
 
 [dev-dependencies]
-bevy = { version = "0.14", features = ["jpeg", "dds", "asset_processor"] }
+bevy = { version = "0.15", features = ["jpeg", "dds", "asset_processor", "bevy_render"] }
 
 # Benchmarks.
 criterion = { version = "0.5" }
 
 # Editor used in many_tiles.
-bevy_lookup_curve = { version = "0.5", default-features = false, features = ["bevy_asset", "bevy_reflect", "editor_bevy"] }
-bevy_editor_pls = { git = "https://github.com/soraxas/bevy_editor_pls.git", branch = "feat-bump-version" }
+bevy_lookup_curve = { version = "0.6", default-features = false, features = ["bevy_asset", "bevy_reflect", "editor_bevy"] }
+bevy_editor_pls = { git = "https://github.com/onkoe/bevy_editor_pls.git" }
 
 # Used in `terrain_collider` example.-
-bevy_rapier3d = "0.27.0"
+bevy_rapier3d = "0.28.0"
 
 [[example]]
 name = "basic_setup"

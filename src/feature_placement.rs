@@ -23,7 +23,7 @@ impl Plugin for FeaturePlacementPlugin {
         app.add_systems(
             PostUpdate,
             update_features_on_tile_built
-                .run_if(on_event::<TileHeightsRebuilt>())
+                .run_if(on_event::<TileHeightsRebuilt>)
                 .after(TerrainSets::Heights),
         );
 

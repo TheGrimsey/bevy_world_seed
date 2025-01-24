@@ -7,10 +7,9 @@ use bevy::{
     core::Name,
     diagnostic::FrameTimeDiagnosticsPlugin,
     math::Vec3,
-    pbr::{DirectionalLight, DirectionalLightBundle},
+    pbr::DirectionalLight,
     prelude::{
-        default, on_event, BuildChildren, Commands, Component, Entity, EventReader,
-        IntoSystemConfigs, PluginGroup, Query, Res, Transform, TransformBundle, VisibilityBundle,
+        default, on_event, BuildChildren, Commands, Component, Entity, EventReader, IntoSystemConfigs, PluginGroup, Query, Res, Transform
     },
     DefaultPlugins,
 };
@@ -24,8 +23,7 @@ use bevy_rapier3d::{
 use bevy_world_seed::{
     material::TerrainTexturingSettings,
     modifiers::{
-        ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ModifierTileAabb,
-        ShapeModifier, ShapeModifierBundle,
+        ModifierHeightProperties, ModifierHoleOperation, ModifierPriority, ShapeModifier, ShapeModifierBundle,
     },
     noise::{LayerNoiseSettings, LayerOperation, NoiseGroup, NoiseLayer, NoiseScaling, TerrainNoiseSettings},
     terrain::{Holes, Terrain, TileToTerrain},
@@ -85,7 +83,7 @@ fn main() {
 
     app.add_systems(
         Update,
-        update_heightfield.run_if(on_event::<TileHeightsRebuilt>()),
+        update_heightfield.run_if(on_event::<TileHeightsRebuilt>),
     );
 
     app.run();
@@ -118,13 +116,13 @@ fn update_heightfield(
                     *entity
                 } else {
                     let collider_entity = commands
-                        .spawn(TransformBundle::from_transform(
+                        .spawn(
                             Transform::from_translation(Vec3::new(
                                 tile_size / 2.0,
                                 0.0,
                                 tile_size / 2.0,
                             )),
-                        ))
+                        )
                         .set_parent(entity)
                         .id();
 
@@ -178,35 +176,32 @@ fn update_heightfield(
 fn spawn_terrain(mut commands: Commands) {
     commands.spawn((
         ShapeModifierBundle {
-            aabb: ModifierTileAabb::default(),
             shape: ShapeModifier::Circle { radius: 2.9 },
             properties: ModifierHeightProperties::default(),
             priority: ModifierPriority(1),
-            transform_bundle: TransformBundle::from_transform(Transform::from_translation(
+            transform: Transform::from_translation(
                 Vec3::new(40.0, 2.0, 6.0),
-            )),
+            ),
         },
         ModifierHoleOperation::default(),
         Name::new("Modifier (Circle Hole)"),
     ));
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        DirectionalLight {
             color: Color::WHITE,
             illuminance: 1000.0,
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
+        Transform::from_translation(Vec3::new(32.0, 25.0, 16.0))
             .looking_at(Vec3::ZERO, Vec3::Y)
-            .with_translation(Vec3::ZERO),
-        ..default()
-    });
+            .with_translation(Vec3::ZERO)
+    ));
 
     commands.spawn((
         Terrain::default(),
-        TransformBundle::default(),
-        VisibilityBundle::default(),
+        Transform::default(),
         Name::new("Terrain"),
     ));
 }

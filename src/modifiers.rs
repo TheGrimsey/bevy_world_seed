@@ -1,6 +1,6 @@
 use bevy_math::{IVec2, Vec2, Vec3, Vec3Swizzles, prelude::CubicCurve};
 use bevy_ecs::prelude::{Bundle, Changed, Component, Entity, EventReader, EventWriter, Or, Query, Res, ResMut, Resource, ReflectComponent};
-use bevy_transform::prelude::{GlobalTransform, TransformBundle};
+use bevy_transform::prelude::{GlobalTransform, Transform};
 use bevy_reflect::Reflect;
 use bevy_utils::HashMap;
 
@@ -11,15 +11,15 @@ use crate::{easing::EasingFunction, noise::LayerNoiseSettings, RebuildTile, Terr
 /// It additionally needs an Operation and optionally properties.
 #[derive(Bundle)]
 pub struct ShapeModifierBundle {
-    pub aabb: ModifierTileAabb,
     pub shape: ShapeModifier,
     pub properties: ModifierHeightProperties,
     pub priority: ModifierPriority,
-    pub transform_bundle: TransformBundle,
+    pub transform: Transform,
 }
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
+#[require(ModifierTileAabb, ModifierPriority)]
 pub enum ShapeModifier {
     Circle { radius: f32 },
     // Half-size.
@@ -102,12 +102,10 @@ pub struct ModifierStrengthLimitProperty(pub f32);
 
 #[derive(Bundle)]
 pub struct TerrainSplineBundle {
-    pub tile_aabb: ModifierTileAabb,
     pub spline: TerrainSplineShape,
     pub properties: TerrainSplineProperties,
-    pub spline_cached: TerrainSplineCached,
     pub priority: ModifierPriority,
-    pub transform_bundle: TransformBundle,
+    pub transform: Transform,
 }
 
 /// Defines the order in which to apply the modifier where lower values are applied earlier.
@@ -125,6 +123,7 @@ pub struct ModifierTileAabb {
 /// Defines the shape of a spline modifier.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
+#[require(ModifierTileAabb, ModifierPriority, TerrainSplineCached)]
 pub struct TerrainSplineShape {
     // TODO: This should be expecting the generic Curve trait when it's implemented.
     /// Cubic curve defining the shape of the spline.
