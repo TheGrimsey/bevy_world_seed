@@ -13,7 +13,7 @@ readme = "README.md"
 [features]
 count_samples = []
 debug_draw = ["rendering", "bevy/bevy_gizmos", "dep:bevy_color", "dep:bevy_gizmos"]
-rendering = ["dep:bevy_render", "dep:bevy_pbr", "dep:bevy_image"]
+rendering = ["dep:bevy_render", "dep:bevy_pbr", "dep:bevy_image", "dep:bevy_tasks"]
 serialize = ["dep:serde"]
 default = ["rendering", "debug_draw"]
 
@@ -34,6 +34,7 @@ bevy_render = { version = "0.15", optional = true }
 bevy_image = { version = "0.15", optional = true }
 bevy_pbr = { version = "0.15", optional = true }
 bevy_color = {version = "0.15", optional = true }
+bevy_tasks = { version = "0.15", optional = true }
 
 bevy_lookup_curve = { version = "0.6", default-features = false, features = ["bevy_asset"] }
 fixedbitset = "0.5"

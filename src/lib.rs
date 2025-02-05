@@ -196,7 +196,7 @@ pub struct RebuildTile(pub IVec2);
 pub struct TileHeightsRebuilt(pub IVec2);
 
 /// Container for the height of points in a terrain tile.
-#[derive(Component, Deref, Debug)]
+#[derive(Component, Deref, Debug, Clone)]
 pub struct Heights(Box<[f32]>);
 
 /// Queue of terrain tiles which [`Heights`] are to be rebuilt.

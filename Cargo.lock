@@ -1469,6 +1469,7 @@ dependencies = [
  "bevy_rapier3d",
  "bevy_reflect",
  "bevy_render",
+ "bevy_tasks",
  "bevy_transform",
  "bevy_utils",
  "criterion",

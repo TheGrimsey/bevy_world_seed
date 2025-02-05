@@ -1,8 +1,7 @@
 use bevy_derive::Deref;
 use bevy_transform::prelude::GlobalTransform;
 use bevy_ecs::{
-    prelude::{Changed, Commands, Component, DetectChanges, Entity, EventWriter, Query, Res, ResMut, Resource, With, Without, ReflectComponent},
-    component::{ComponentHooks, StorageType}
+    component::ComponentId, prelude::{Changed, Commands, Component, DetectChanges, Entity, EventWriter, Query, ReflectComponent, Res, ResMut, Resource, With, Without}, world::DeferredWorld
 };
 use bevy_math::{IVec2, Vec3Swizzles};
 use bevy_reflect::Reflect;
@@ -70,8 +69,10 @@ pub struct HoleEntry {
 /// Marker component for the entity being a terrain tile.
 ///
 /// Internal `IVec2` is updated based on `GlobalTransform` to the tile this terrain corresponds to.
-#[derive(Reflect, Deref, Debug, Default, Clone, Copy)]
+#[derive(Component, Reflect, Deref, Debug, Default, Clone, Copy)]
 #[reflect(Component)]
+#[require(SpawnedFeatures, TileBiomes)]
+#[component(on_remove = on_remove_terrain)]
 pub struct Terrain(pub(super) IVec2);
 impl Terrain {
     /// Manually set the tile.
@@ -82,21 +83,16 @@ impl Terrain {
         Self(tile)
     }
 }
-impl Component for Terrain {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
 
-    fn register_component_hooks(hooks: &mut ComponentHooks) {
-        hooks.on_remove(|mut world, entity, _id| {
-            let terrain = *world.get::<Terrain>(entity).unwrap();
+fn on_remove_terrain(mut world: DeferredWorld, entity: Entity, _id: ComponentId) {
+    let terrain = *world.get::<Terrain>(entity).unwrap();
 
-            // Remove ourselves from the tiles to terrain list.
-            let mut tile_to_terrain = world.resource_mut::<TileToTerrain>();
-            if let Some(tiles) = tile_to_terrain.0.get_mut(&terrain.0) {
-                if let Some(i) = tiles.iter().position(|entry| *entry == entity) {
-                    tiles.swap_remove(i);
-                }
-            }
-        });
+    // Remove ourselves from the tiles to terrain list.
+    let mut tile_to_terrain = world.resource_mut::<TileToTerrain>();
+    if let Some(tiles) = tile_to_terrain.0.get_mut(&terrain.0) {
+        if let Some(i) = tiles.iter().position(|entry| *entry == entity) {
+            tiles.swap_remove(i);
+        }
     }
 }
 
@@ -115,9 +111,7 @@ pub(super) fn insert_components(
     query.iter().for_each(|entity| {
         commands.entity(entity).insert((
             Heights(vec![0.0; heights].into_boxed_slice()),
-            Holes(FixedBitSet::with_capacity(heights)),
-            SpawnedFeatures::default(),
-            TileBiomes::default()
+            Holes(FixedBitSet::with_capacity(heights))
         ));
     });
 }

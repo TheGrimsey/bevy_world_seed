@@ -17,7 +17,7 @@ pub struct ShapeModifierBundle {
     pub transform: Transform,
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 #[require(ModifierTileAabb, ModifierPriority)]
 pub enum ShapeModifier {
@@ -30,7 +30,7 @@ pub enum ShapeModifier {
 /// Determines the falloff distance for operations.
 ///
 /// Affects the strength falloff of height & texture operators
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct ModifierFalloffProperty {
     /// Falloff should always be greater than 0.
@@ -41,7 +41,7 @@ pub struct ModifierFalloffProperty {
 /// Modify the falloff distance around a modifier.
 ///
 /// Gives a more organic falloff.
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct ModifierFalloffNoiseProperty {
     pub noise: LayerNoiseSettings,
@@ -96,7 +96,7 @@ pub struct ModifierHoleOperation {
 /// Clamps the max strength of a modifier to this value.
 ///
 /// Use if you want to only blend the modifier in a bit.
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct ModifierStrengthLimitProperty(pub f32);
 
@@ -130,7 +130,7 @@ pub struct TerrainSplineShape {
     pub curve: CubicCurve<Vec3>,
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct TerrainSplineProperties {
     pub half_width: f32,
@@ -139,7 +139,7 @@ pub struct TerrainSplineProperties {
 /// Cache of points used when updating tiles.
 ///
 /// Automatically updated when the terrain spline changes.
-#[derive(Component, Reflect, Default)]
+#[derive(Component, Reflect, Default, Clone)]
 #[reflect(Component)]
 pub struct TerrainSplineCached {
     pub(super) points: Vec<Vec3>,

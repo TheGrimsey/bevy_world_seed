@@ -1,11 +1,11 @@
-use std::num::NonZeroU8;
+use std::{num::NonZeroU8, sync::Arc};
 
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_asset::{load_internal_asset, Asset, AssetApp, Assets, Handle};
 use bevy_log::{info, info_span};
 use bevy_math::{IVec2, UVec4, Vec2, Vec3, Vec3Swizzles, Vec4};
 use bevy_pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d, StandardMaterial};
-use bevy_ecs::prelude::{Commands, Component, Entity, EventReader, Query, Res, ResMut, Resource, With, Without, IntoSystemConfigs, ReflectComponent, ReflectResource, Local, DetectChanges};
+use bevy_ecs::{prelude::{Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, Local, Query, ReflectComponent, ReflectResource, Res, ResMut, Resource, With, Without}, schedule::common_conditions::any_with_component};
 use bevy_render::{
     primitives::Aabb,
     render_asset::RenderAssetUsages,
@@ -15,6 +15,7 @@ use bevy_render::{
 use bevy_transform::prelude::GlobalTransform;
 use bevy_reflect::{Reflect, prelude::ReflectDefault};
 use bevy_image::Image;
+use bevy_tasks::{futures_lite, AsyncComputeTaskPool, Task};
 
 use crate::{
     calc_shape_modifier_strength, distance_squared_to_line_segment, easing::EasingFunction, meshing::TerrainMeshRebuilt, modifiers::{
@@ -48,10 +49,14 @@ impl Plugin for TerrainTexturingPlugin {
         app.add_systems(
             PostUpdate,
             (
-                insert_texture_map.in_set(TerrainSets::Init),
-                update_terrain_texture_maps
-                    .after(TerrainSets::Meshing)
-                    .in_set(TerrainSets::Material),
+                insert_material.in_set(TerrainSets::Init),
+                (
+                    apply_texture_maps.run_if(any_with_component::<TextureGenerationTask>),
+                    update_terrain_texture_maps
+                )
+                .chain()
+                .after(TerrainSets::Meshing)
+                .in_set(TerrainSets::Material),
             )
                 .chain(),
         );
@@ -71,8 +76,8 @@ pub struct TerrainTexturingSettings {
     /// Setting this equal to [`TerrainSettings::tile_size_power`] would mean textures can change every 1m.
     pub texture_resolution_power: NonZeroU8,
 
-    /// The maximum amount of tiles to update in a single frame.
-    pub max_tile_updates_per_frame: NonZeroU8,
+    /// The maximum amount of texture generation tasks to run at once.
+    pub max_texture_generation_tasks: NonZeroU8,
 }
 impl TerrainTexturingSettings {
     pub fn resolution(&self) -> u32 {
@@ -80,7 +85,7 @@ impl TerrainTexturingSettings {
     }
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct TextureModifierOperation {
     pub texture: Handle<Image>,
@@ -98,7 +103,7 @@ pub struct TextureModifierOperation {
 /// Determines the falloff distance for texture operations.
 ///
 /// Overrides [`ModifierFalloffProperty`] if present.
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone)]
 #[reflect(Component)]
 pub struct TextureModifierFalloffProperty {
     pub falloff: f32,
@@ -266,7 +271,7 @@ impl TexturingRuleEvaluator {
     }
 }
 
-#[derive(Reflect)]
+#[derive(Reflect, Clone)]
 pub struct TexturingRule {
     pub evaluators: Vec<TexturingRuleEvaluator>,
     pub evaulator_combinator: StrengthCombinator,
@@ -281,7 +286,7 @@ pub struct TexturingRule {
 }
 
 /// Defines the rules for procedural texturing.
-#[derive(Resource, Reflect)]
+#[derive(Resource, Reflect, Clone)]
 #[reflect(Resource)]
 pub struct GlobalTexturingRules {
     pub rules: Vec<TexturingRule>,
@@ -331,14 +336,6 @@ pub(super) struct TerrainMaterial {
 type TerrainMaterialExtended = ExtendedMaterial<StandardMaterial, TerrainMaterial>;
 trait TerrainMaterialExtendedMethods {
     fn clear_textures(&mut self);
-    fn clear_slot(&mut self, index: usize);
-    fn get_texture_slot(
-        &mut self,
-        image: &Handle<Image>,
-        normal: &Option<Handle<Image>>,
-        units_per_texture: f32,
-        tile_size: f32,
-    ) -> Option<(usize, bool)>;
 }
 
 impl TerrainMaterialExtendedMethods for TerrainMaterialExtended {
@@ -353,82 +350,6 @@ impl TerrainMaterialExtendedMethods for TerrainMaterialExtended {
         self.extension.texture_c_normal = None;
         self.extension.texture_d_normal = None;
     }
-
-    fn clear_slot(&mut self, index: usize) {
-        match index {
-            0 => {
-                self.base.base_color_texture = None;
-                self.base.normal_map_texture = None;
-            },
-            1 => {
-                self.extension.texture_b = None;
-                self.extension.texture_b_normal = None;
-            },
-            2 => {
-                self.extension.texture_c = None;
-                self.extension.texture_c_normal = None;
-            },
-            3 => {
-                self.extension.texture_d = None;
-                self.extension.texture_d_normal = None;
-            },
-            _ => {}
-        }
-    }
-
-    fn get_texture_slot(
-        &mut self,
-        image: &Handle<Image>,
-        normal: &Option<Handle<Image>>,
-        units_per_texture: f32,
-        tile_size: f32,
-    ) -> Option<(usize, bool)> {
-        let scale = 1.0 / (units_per_texture / tile_size);
-        // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
-        if self.base.base_color_texture.as_ref().is_some_and(|entry| {
-            entry == image && self.extension.texture_a_scale == scale && self.base.normal_map_texture == *normal
-        }) {
-            Some((0, false))
-        } else if self.extension.texture_b.as_ref().is_some_and(|entry| {
-            entry == image && self.extension.texture_b_scale == scale && self.extension.texture_b_normal == *normal
-        }) {
-            Some((1, false))
-        } else if self.extension.texture_c.as_ref().is_some_and(|entry| {
-            entry == image && self.extension.texture_c_scale == scale && self.extension.texture_c_normal == *normal
-        }) {
-            Some((2, false))
-        } else if self.extension.texture_d.as_ref().is_some_and(|entry| {
-            entry == image && self.extension.texture_d_scale == scale && self.extension.texture_d_normal == *normal
-        }) {
-            Some((3, false))
-        } else if self.base.base_color_texture.is_none() {
-            self.base.base_color_texture = Some(image.clone());
-            self.base.normal_map_texture.clone_from(normal);
-            self.extension.texture_a_scale = scale;
-
-            Some((0, true))
-        } else if self.extension.texture_b.is_none() {
-            self.extension.texture_b = Some(image.clone());
-            self.extension.texture_b_normal.clone_from(normal);
-            self.extension.texture_b_scale = scale;
-
-            Some((1, true))
-        } else if self.extension.texture_c.is_none() {
-            self.extension.texture_c = Some(image.clone());
-            self.extension.texture_c_normal.clone_from(normal);
-            self.extension.texture_c_scale = scale;
-
-            Some((2, true))
-        } else if self.extension.texture_d.is_none() {
-            self.extension.texture_d = Some(image.clone());
-            self.extension.texture_d_normal.clone_from(normal);
-            self.extension.texture_d_scale = scale;
-
-            Some((3, true))
-        } else {
-            None
-        }
-    }
 }
 
 impl MaterialExtension for TerrainMaterial {
@@ -437,44 +358,19 @@ impl MaterialExtension for TerrainMaterial {
     }
 }
 
-fn insert_texture_map(
-    texture_settings: Res<TerrainTexturingSettings>,
+fn insert_material(
     mut commands: Commands,
     mut materials: ResMut<Assets<TerrainMaterialExtended>>,
-    mut images: ResMut<Assets<Image>>,
     query: Query<Entity, (With<Terrain>, Without<MeshMaterial3d<TerrainMaterialExtended>>)>,
 ) {
-    let resolution = texture_settings.resolution();
-    let texture_format = TextureFormat::Rgba8Unorm;
-    let size = (texture_format.block_copy_size(None).unwrap() * resolution * resolution) as usize;
-
     query.iter().for_each(|entity| {
-        let image = Image::new(
-            Extent3d {
-                width: resolution,
-                height: resolution,
-                depth_or_array_layers: 1,
-            },
-            TextureDimension::D2,
-            vec![0; size],
-            texture_format,
-            RenderAssetUsages::all(),
-        );
-
-        let image_handle = images.add(image);
-
-        let material = TerrainMaterial {
-            texture_map: image_handle,
-            ..Default::default()
-        };
-
         let material_handle = materials.add(TerrainMaterialExtended {
             base: StandardMaterial {
                 perceptual_roughness: 1.0,
                 reflectance: 0.0,
                 ..Default::default()
             },
-            extension: material,
+            extension: TerrainMaterial::default(),
         });
 
         commands
@@ -498,6 +394,52 @@ impl TerrainTextureRebuildQueue {
     }
 }
 
+fn apply_texture_maps(
+    mut query: Query<(Entity, &mut TextureGenerationTask, &MeshMaterial3d<TerrainMaterialExtended>)>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<TerrainMaterialExtended>>,
+    mut textures: ResMut<Assets<Image>>,
+) {
+    query.iter_mut().for_each(|(entity, mut texture_generation_task, material)| {
+        if let Some(splat_map) = futures_lite::future::block_on(futures_lite::future::poll_once(&mut texture_generation_task.task)) {
+            if let Some(material) = materials.get_mut(&material.0) {
+                material.clear_textures();
+
+                material.base.base_color_texture = splat_map.textures[0].clone();
+                material.extension.texture_a_scale = splat_map.units_per_texture[0];
+                material.base.normal_map_texture = splat_map.normal_textures[0].clone();
+
+                material.extension.texture_b = splat_map.textures[1].clone();
+                material.extension.texture_b_scale = splat_map.units_per_texture[1];
+                material.extension.texture_b_normal = splat_map.normal_textures[1].clone();
+
+                material.extension.texture_c = splat_map.textures[2].clone();
+                material.extension.texture_c_scale = splat_map.units_per_texture[2];
+                material.extension.texture_c_normal = splat_map.normal_textures[2].clone();
+
+                material.extension.texture_d = splat_map.textures[3].clone();
+                material.extension.texture_d_scale = splat_map.units_per_texture[3];
+                material.extension.texture_d_normal = splat_map.normal_textures[3].clone();
+
+                let texture = textures.add(Image::new(
+                    Extent3d {
+                        width: splat_map.resolution,
+                        height: splat_map.resolution,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    splat_map.data,
+                    TextureFormat::Rgba8Unorm,
+                    RenderAssetUsages::RENDER_WORLD,
+                ));
+                material.extension.texture_map = texture;
+            }
+
+            commands.entity(entity).remove::<TextureGenerationTask>();
+        }
+    });
+}
+
 fn update_terrain_texture_maps(
     shape_modifier_query: Query<(
         &TextureModifierOperation,
@@ -517,14 +459,16 @@ fn update_terrain_texture_maps(
         Option<&ModifierFalloffProperty>,
         Option<&TextureModifierFalloffProperty>,
     )>,
-    tiles_query: Query<(
+    mut tiles_query: Query<(
+        Entity,
         &Heights,
-        &MeshMaterial3d<TerrainMaterialExtended>,
         &Mesh3d,
         &Terrain,
         &Aabb,
-        &TileBiomes
+        &TileBiomes,
+        Option<&mut TextureGenerationTask>,
     )>,
+    textures_generating: Query<(), With<TextureGenerationTask>>,
     texturing_settings: (
         Res<TerrainTexturingSettings>,
         Res<GlobalTexturingRules>,
@@ -534,21 +478,36 @@ fn update_terrain_texture_maps(
     tile_to_terrain: Res<TileToTerrain>,
     mut event_reader: EventReader<TerrainMeshRebuilt>,
     mut tile_generate_queue: ResMut<TerrainTextureRebuildQueue>,
-    mut materials: ResMut<Assets<TerrainMaterialExtended>>,
-    mut images: ResMut<Assets<Image>>,
     meshes: Res<Assets<Mesh>>,
-    mut noise_resources: (
+    noise_resources: (
         Res<TerrainNoiseSettings>,
-        ResMut<NoiseCache>,
+        Res<NoiseCache>,
         Res<NoiseIndexCache>
-    ), 
-    mut needs_noise: Local<bool>,
-    mut data_samples: Local<Vec<Vec4>>,
-    mut biome_samples: Local<Vec<Vec4>>,
+    ),
+    mut cached_terrain_details: Local<Option<Arc<CachedTerrainDetails>>>,
+    mut commands: Commands
 ) {
-    if texturing_settings.1.is_changed() {
-        *needs_noise = texturing_settings.1.rules.iter().any(|rule| rule.evaluators.iter().any(|evaulator| evaulator.needs_noise()));
+    let tile_size = terrain_settings.tile_size();
+    let resolution = texturing_settings.0.resolution();
+    let vertex_scale = (terrain_settings.edge_points - 1) as f32 / resolution as f32;
+
+    if texturing_settings.0.is_changed() || texturing_settings.1.is_changed() || terrain_settings.is_changed() || cached_terrain_details.is_none() {
+        let needs_noise = texturing_settings.1.rules.iter().any(|rule| rule.evaluators.iter().any(|evaulator| evaulator.needs_noise()));
+        
+        *cached_terrain_details = Some(Arc::new(CachedTerrainDetails {
+            vertex_scale,
+            tile_size,
+            texturing_rules: if texturing_settings.1.rules.is_empty() {
+                None
+            } else {
+                Some(texturing_settings.1.clone())
+            },
+            terrain_noise_settings: noise_resources.0.clone(),
+            terrain_settings: terrain_settings.clone(),
+            needs_noise,
+        }));
     }
+    let cached_terrain_details = cached_terrain_details.as_ref().unwrap();
 
     for TerrainMeshRebuilt(tile) in event_reader.read() {
         if !tile_generate_queue.0.contains(tile) {
@@ -559,361 +518,496 @@ fn update_terrain_texture_maps(
     if tile_generate_queue.is_empty() {
         return;
     }
-
-    let tile_size = terrain_settings.tile_size();
-    let resolution = texturing_settings.0.resolution();
-    let scale = tile_size / resolution as f32;
-    let vertex_scale = (terrain_settings.edge_points - 1) as f32 / resolution as f32;
-    let inv_tile_size_scale = scale * (7.0 / tile_size);
+    let thread_pool = AsyncComputeTaskPool::get();
 
     let tiles_to_generate = tile_generate_queue
         .count()
-        .min(texturing_settings.0.max_tile_updates_per_frame.get() as usize);
+        .min(texturing_settings.0.max_texture_generation_tasks.get() as usize).saturating_sub(textures_generating.iter().len());
 
-    tiles_query
-        .iter_many(
+    let mut iter = tiles_query
+        .iter_many_mut(
             tile_generate_queue
                 .0
                 .drain(..tiles_to_generate)
                 .filter_map(|tile| tile_to_terrain.0.get(&tile))
                 .flatten(),
-        )
-        .for_each(|(heights, material, mesh, terrain_coordinate, aabb, tile_biomes)| {
-            let Some(material) = materials.get_mut(material) else {
-                return;
-            };
-            let Some(mesh) = meshes.get(mesh) else {
-                return;
-            };
-            let Some(texture) = images.get_mut(material.extension.texture_map.id()) else {
-                return;
-            };
+        );
 
-            texture.data.fill(0);
-            material.clear_textures();
+    while let Some((entity, heights, mesh, terrain_coordinate, aabb, tile_biomes, texture_generation_task)) = iter.fetch_next(){
+        let Some(mesh) = meshes.get(mesh) else {
+            return;
+        };
+        
+        let terrain_translation =
+            (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
 
-            let terrain_translation =
-                (terrain_coordinate.0 << terrain_settings.tile_size_power.get()).as_vec2();
+        let min_height = aabb.center.y - aabb.half_extents.y;
+        let max_height = aabb.center.y + aabb.half_extents.y;
 
-            if !texturing_settings.1.rules.is_empty() {
-                let _span = info_span!("Apply global texturing rules.").entered();
+        let normals = mesh
+            .attribute(Mesh::ATTRIBUTE_NORMAL)
+            .unwrap()
+            .as_float3()
+            .unwrap()
+            .to_vec()
+            .into_boxed_slice();
 
-                let normals = mesh
-                    .attribute(Mesh::ATTRIBUTE_NORMAL)
-                    .unwrap()
-                    .as_float3()
-                    .unwrap();
-
-                let min = aabb.center.y - aabb.half_extents.y;
-                let max = aabb.center.y + aabb.half_extents.y;
-
-                for rule in texturing_settings.1.rules.iter() {
-                    if (
-                        matches!(rule.evaulator_combinator, StrengthCombinator::Min | StrengthCombinator::Multiply) && !rule.evaluators.iter().all(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
-                        || !rule.evaluators.iter().any(|evaluator| evaluator.can_apply_to_tile(min, max, tile_biomes))
-                    ) {
-                        continue;
+        let shapes = if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
+            shapes.iter().filter_map(|shape| {
+                shape_modifier_query.get(shape.entity).ok().map(|(texture_modifier, shape_modifier, (
+                    modifier_falloff,
+                    texture_modifier_falloff,
+                    modifier_falloff_noise,
+                ), strength_limit, transform)| {
+                    ShapeDefinition {
+                        overlap_bits: shape.overlap_bits,
+                        texture_modifier: texture_modifier.clone(),
+                        shape_modifier: shape_modifier.clone(),
+                        modifier_falloff: modifier_falloff.cloned(),
+                        texture_modifier_falloff: texture_modifier_falloff.cloned(),
+                        modifier_falloff_noise: modifier_falloff_noise.cloned(),
+                        modifier_strength_limit: strength_limit.cloned(),
+                        global_transform: *transform,
                     }
-
-                    let Some((texture_channel, is_new)) = material.get_texture_slot(
-                        &rule.texture,
-                        &rule.normal_texture,
-                        rule.units_per_texture,
-                        tile_size,
-                    ) else {
-                        info!("Hit max texture channels.");
-                        continue;
-                    };
-                    
-                    let mut applied = false;
-                    let needs_noise = *needs_noise && rule.evaluators.iter().any(|evaluator| evaluator.needs_noise()); 
-
-                    for (i, val) in texture.data.chunks_exact_mut(16).enumerate() {
-                        let true_i = (i * 4) as u32;
-                        let (x, z) = index_to_x_z_simd(UVec4::new(true_i, true_i + 1, true_i + 2, true_i + 3), resolution);
-
-                        let x_f = x.as_vec4() * vertex_scale;
-                        let z_f = z.as_vec4() * vertex_scale;
-
-                        let vertex_x = x_f.as_uvec4();
-                        let vertex_z = z_f.as_uvec4();
-
-                        let vertex_a = (vertex_z * terrain_settings.edge_points as u32) + vertex_x;
-                        let vertex_b = vertex_a + 1;
-                        let vertex_c = vertex_a + terrain_settings.edge_points as u32;
-                        let vertex_d = vertex_a + terrain_settings.edge_points as u32 + 1;
-
-                        let local_x = x_f.fract();
-                        let local_z = z_f.fract();
-
-                        if needs_noise {
-                            let world_x = x_f + Vec4::splat(terrain_translation.x);
-                            let world_z = z_f + Vec4::splat(terrain_translation.y);
-
-                            data_samples.clear();
-                            noise_resources.0.sample_data_simd(&noise_resources.1, &noise_resources.2, world_x, world_z, &mut data_samples);
-
-                            biome_samples.clear();
-                            noise_resources.0.sample_biomes_simd(&noise_resources.1, &noise_resources.2, world_x, world_z, &data_samples, &mut biome_samples);
-                        }
-
-                        // Skip the bounds checks.
-                        let height_at_position = unsafe {
-                            Vec4::new(
-                                get_height_at_position_in_quad(
-                                    *heights.0.get_unchecked(vertex_a.x as usize),
-                                    *heights.0.get_unchecked(vertex_b.x as usize),
-                                    *heights.0.get_unchecked(vertex_c.x as usize),
-                                    *heights.0.get_unchecked(vertex_d.x as usize),
-                                    local_x.x,
-                                    local_z.x,
-                                ),
-                                get_height_at_position_in_quad(
-                                    *heights.0.get_unchecked(vertex_a.y as usize),
-                                    *heights.0.get_unchecked(vertex_b.y as usize),
-                                    *heights.0.get_unchecked(vertex_c.y as usize),
-                                    *heights.0.get_unchecked(vertex_d.y as usize),
-                                    local_x.y,
-                                    local_z.y,
-                                ),
-                                get_height_at_position_in_quad(
-                                    *heights.0.get_unchecked(vertex_a.z as usize),
-                                    *heights.0.get_unchecked(vertex_b.z as usize),
-                                    *heights.0.get_unchecked(vertex_c.z as usize),
-                                    *heights.0.get_unchecked(vertex_d.z as usize),
-                                    local_x.z,
-                                    local_z.z,
-                                ),
-                                get_height_at_position_in_quad(
-                                    *heights.0.get_unchecked(vertex_a.w as usize),
-                                    *heights.0.get_unchecked(vertex_b.w as usize),
-                                    *heights.0.get_unchecked(vertex_c.w as usize),
-                                    *heights.0.get_unchecked(vertex_d.w as usize),
-                                    local_x.w,
-                                    local_z.w,
-                                )
-                            )
-                        };
-
-                        // Skip the bounds checks.
-                        let normal_angle = unsafe {
-                            Vec4::new(
-                                get_normal_at_position_in_quad(
-                                    (*normals.get_unchecked(vertex_a.x as usize)).into(),
-                                    (*normals.get_unchecked(vertex_b.x as usize)).into(),
-                                    (*normals.get_unchecked(vertex_c.x as usize)).into(),
-                                    (*normals.get_unchecked(vertex_d.x as usize)).into(),
-                                    local_x.x,
-                                    local_z.x,
-                                ).dot(Vec3::Y).acos(),
-                                get_normal_at_position_in_quad(
-                                    (*normals.get_unchecked(vertex_a.y as usize)).into(),
-                                    (*normals.get_unchecked(vertex_b.y as usize)).into(),
-                                    (*normals.get_unchecked(vertex_c.y as usize)).into(),
-                                    (*normals.get_unchecked(vertex_d.y as usize)).into(),
-                                    local_x.y,
-                                    local_z.y,
-                                ).dot(Vec3::Y).acos(),
-                                get_normal_at_position_in_quad(
-                                    (*normals.get_unchecked(vertex_a.z as usize)).into(),
-                                    (*normals.get_unchecked(vertex_b.z as usize)).into(),
-                                    (*normals.get_unchecked(vertex_c.z as usize)).into(),
-                                    (*normals.get_unchecked(vertex_d.z as usize)).into(),
-                                    local_x.z,
-                                    local_z.z,
-                                ).dot(Vec3::Y).acos(),
-                                get_normal_at_position_in_quad(
-                                    (*normals.get_unchecked(vertex_a.w as usize)).into(),
-                                    (*normals.get_unchecked(vertex_b.w as usize)).into(),
-                                    (*normals.get_unchecked(vertex_c.w as usize)).into(),
-                                    (*normals.get_unchecked(vertex_d.w as usize)).into(),
-                                    local_x.w,
-                                    local_z.w,
-                                ).dot(Vec3::Y).acos(),
-                            )
-                        };
-
-                        let strength = if let Some(evaluator) = rule.evaluators.first() {
-                            let initial_strength = evaluator.eval_simd(height_at_position, normal_angle, &biome_samples);
-
-                            rule.evaluators.iter().skip(1).fold(initial_strength, |acc, filter| {
-                                let eval_sample = filter.eval_simd(height_at_position, normal_angle, &biome_samples);
-                            
-                                rule.evaulator_combinator.combine_simd(acc, eval_sample)
-                            })
-                        } else {
-                            Vec4::ONE
-                        };
-
-                        // Apply texture.
-                        let strength = strength * Vec4::splat(255.0);
-                        
-                        if strength.cmpge(Vec4::splat(f32::EPSILON)).any() {
-                            apply_texture(&mut val[0..4], texture_channel, strength.x as u8);
-                            apply_texture(&mut val[4..8], texture_channel, strength.y as u8);
-                            apply_texture(&mut val[8..12], texture_channel, strength.z as u8);
-                            apply_texture(&mut val[12..16], texture_channel, strength.w as u8);
-
-                            applied = true;
-                        }
+                })
+            }).collect()
+        } else {
+            vec![]
+        };
+        let splines = if let Some(splines) = tile_to_modifier.splines.get(&terrain_coordinate.0) {
+            splines.iter().filter_map(|entry| {
+                spline_query.get(entry.entity).ok().map(|(texture_modifier, spline, properties, modifier_falloff, texture_modifier_falloff)| {
+                    SplineDefinition {
+                        overlap_bits: entry.overlap_bits,
+                        texture_modifier: texture_modifier.clone(),
+                        spline: spline.clone(),
+                        spline_properties: properties.clone(),
+                        modifier_falloff: modifier_falloff.cloned(),
+                        texture_modifier_falloff: texture_modifier_falloff.cloned(),
                     }
+                })
+            }).collect()
+        } else {
+            vec![]
+        };
 
-                    if is_new && !applied {
-                        material.clear_slot(texture_channel);
-                    }
-                }
+        let task = thread_pool.spawn(
+            generate_splat_map(
+                resolution,
+                cached_terrain_details.clone(),
+                terrain_translation,
+                normals,
+                heights.clone(),
+                min_height,
+                max_height,
+                tile_biomes.clone(),
+                shapes,
+                splines
+            )
+        );
+
+        if let Some(mut texture_generation_task) = texture_generation_task {
+            texture_generation_task.task = task;
+        } else {
+            commands.entity(entity).insert(TextureGenerationTask { task });
+        }
+    }
+}
+
+#[derive(Component)]
+struct TextureGenerationTask {
+    task: Task<SplatMap>
+}
+
+struct SplatMap {
+    resolution: u32,
+    data: Vec<u8>,
+
+    textures: [Option<Handle<Image>>; 4],
+    normal_textures: [Option<Handle<Image>>; 4],
+    units_per_texture: [f32; 4],
+}
+impl SplatMap {
+    fn get_texture_slot(
+        &mut self,
+        image: &Handle<Image>,
+        normal: &Option<Handle<Image>>,
+        units_per_texture: f32,
+        tile_size: f32,
+    ) -> Option<(usize, bool)> {
+        let scale = 1.0 / (units_per_texture / tile_size);
+        
+        // Find the first matching or empty texture slot (& assign it to the input texture if applicable).
+        let existing = self.textures.iter().enumerate().position(|(i, entry)| entry.as_ref().is_some_and(|entry| {
+            entry == image && self.units_per_texture[i] == scale && self.normal_textures[i] == *normal
+        }));
+        if let Some(existing) = existing {
+            return Some((existing, false));
+        }
+
+        for i in 0..4 {
+            if self.textures[i].is_none() {
+                self.textures[i] = Some(image.clone());
+                self.normal_textures[i] = normal.clone();
+                self.units_per_texture[i] = scale;
+
+                return Some((i, true));
+            }
+        }
+
+        None
+    }
+}
+
+struct CachedTerrainDetails {
+    vertex_scale: f32,
+    tile_size: f32,
+    texturing_rules: Option<GlobalTexturingRules>,
+    terrain_noise_settings: TerrainNoiseSettings,
+    terrain_settings: TerrainSettings,
+    needs_noise: bool,
+}
+
+struct ShapeDefinition {
+    overlap_bits: u64,
+    texture_modifier: TextureModifierOperation,
+    shape_modifier: ShapeModifier,
+    modifier_falloff: Option<ModifierFalloffProperty>,
+    texture_modifier_falloff: Option<TextureModifierFalloffProperty>,
+    modifier_falloff_noise: Option<ModifierFalloffNoiseProperty>,
+    modifier_strength_limit: Option<ModifierStrengthLimitProperty>,
+    global_transform: GlobalTransform,
+}
+
+struct SplineDefinition {
+    overlap_bits: u64,
+    texture_modifier: TextureModifierOperation,
+    spline: TerrainSplineCached,
+    spline_properties: TerrainSplineProperties,
+    modifier_falloff: Option<ModifierFalloffProperty>,
+    texture_modifier_falloff: Option<TextureModifierFalloffProperty>,
+}
+
+async fn generate_splat_map(
+    resolution: u32,
+    cached_terrain_details: Arc<CachedTerrainDetails>,
+    terrain_translation: Vec2,
+    normals: Box<[[f32; 3]]>,
+    heights: Heights,
+    min_height: f32,
+    max_height: f32,
+    tile_biomes: TileBiomes,
+    shapes: Vec<ShapeDefinition>,
+    splines: Vec<SplineDefinition>
+) -> SplatMap {
+    let _span = info_span!("Generating Terrain Splat Map").entered();
+    let mut noise_cache = NoiseCache::default();    
+    let mut noise_index_cache = NoiseIndexCache::default();
+    noise_index_cache.fill_cache(&cached_terrain_details.terrain_noise_settings, &mut noise_cache);
+
+    let scale = cached_terrain_details.tile_size / resolution as f32;
+    let inv_tile_size_scale = scale * (7.0 / cached_terrain_details.tile_size);
+    let mut splat_map = SplatMap {
+        resolution,
+        data: vec![0; (resolution * resolution) as usize * 4],
+        textures: [const { None }; 4],
+        normal_textures: [const { None }; 4],
+        units_per_texture: [0.0; 4],
+    };
+
+    if let Some(texturing_rules) = &cached_terrain_details.texturing_rules {
+        let _span = info_span!("Apply global texturing rules.").entered();
+        let mut data_samples = Vec::with_capacity(cached_terrain_details.terrain_noise_settings.data.len());
+        let mut biome_samples = Vec::with_capacity(cached_terrain_details.terrain_noise_settings.biome.len());
+
+        for rule in texturing_rules.rules.iter() {
+            if (
+                matches!(rule.evaulator_combinator, StrengthCombinator::Min | StrengthCombinator::Multiply) && !rule.evaluators.iter().all(|evaluator| evaluator.can_apply_to_tile(min_height, max_height, &tile_biomes))
+                || !rule.evaluators.iter().any(|evaluator| evaluator.can_apply_to_tile(min_height, max_height, &tile_biomes))
+            ) {
+                continue;
             }
 
-            // Secondly, set by shape-modifiers.
-            if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
-                let _span = info_span!("Apply shape modifiers").entered();
+            let Some((texture_channel, is_new)) = splat_map.get_texture_slot(
+                &rule.texture,
+                &rule.normal_texture,
+                rule.units_per_texture,
+                cached_terrain_details.tile_size,
+            ) else {
+                info!("Hit max texture channels.");
+                continue;
+            };
+            
+            let mut applied = false;
+            let needs_noise = cached_terrain_details.needs_noise && rule.evaluators.iter().any(|evaluator| evaluator.needs_noise()); 
 
-                for entry in shapes.iter() {
-                    if let Ok((
-                        texture_modifier,
-                        shape_modifier,
-                        (
-                            modifier_falloff,
-                            texture_modifier_falloff,
-                            modifier_falloff_noise
+            for (i, val) in splat_map.data.chunks_exact_mut(16).enumerate() {
+                let true_i = (i * 4) as u32;
+                let (x, z) = index_to_x_z_simd(UVec4::new(true_i, true_i + 1, true_i + 2, true_i + 3), resolution);
+
+                let x_f = x.as_vec4() * cached_terrain_details.vertex_scale;
+                let z_f = z.as_vec4() * cached_terrain_details.vertex_scale;
+
+                let vertex_x = x_f.as_uvec4();
+                let vertex_z = z_f.as_uvec4();
+
+                let vertex_a = (vertex_z * cached_terrain_details.terrain_settings.edge_points as u32) + vertex_x;
+                let vertex_b = vertex_a + 1;
+                let vertex_c = vertex_a + cached_terrain_details.terrain_settings.edge_points as u32;
+                let vertex_d = vertex_a + cached_terrain_details.terrain_settings.edge_points as u32 + 1;
+
+                let local_x = x_f.fract();
+                let local_z = z_f.fract();
+
+                if needs_noise {
+                    let world_x = x_f + Vec4::splat(terrain_translation.x);
+                    let world_z = z_f + Vec4::splat(terrain_translation.y);
+
+                    data_samples.clear();
+                    cached_terrain_details.terrain_noise_settings.sample_data_simd(&noise_cache, &noise_index_cache, world_x, world_z, &mut data_samples);
+
+                    biome_samples.clear();
+                    cached_terrain_details.terrain_noise_settings.sample_biomes_simd(&noise_cache, &noise_index_cache, world_x, world_z, &data_samples, &mut biome_samples);
+                }
+
+                // Skip the bounds checks.
+                let height_at_position = unsafe {
+                    Vec4::new(
+                        get_height_at_position_in_quad(
+                            *heights.0.get_unchecked(vertex_a.x as usize),
+                            *heights.0.get_unchecked(vertex_b.x as usize),
+                            *heights.0.get_unchecked(vertex_c.x as usize),
+                            *heights.0.get_unchecked(vertex_d.x as usize),
+                            local_x.x,
+                            local_z.x,
                         ),
-                        modifier_strength_limit,
-                        global_transform,
-                    )) = shape_modifier_query.get(entry.entity)
-                    {
-                        let Some((texture_channel, is_new)) = material.get_texture_slot(
-                            &texture_modifier.texture,
-                            &texture_modifier.normal_texture,
-                            texture_modifier.units_per_texture,
-                            tile_size,
-                        ) else {
-                            info!("Hit max texture channels.");
-                            return;
-                        };
+                        get_height_at_position_in_quad(
+                            *heights.0.get_unchecked(vertex_a.y as usize),
+                            *heights.0.get_unchecked(vertex_b.y as usize),
+                            *heights.0.get_unchecked(vertex_c.y as usize),
+                            *heights.0.get_unchecked(vertex_d.y as usize),
+                            local_x.y,
+                            local_z.y,
+                        ),
+                        get_height_at_position_in_quad(
+                            *heights.0.get_unchecked(vertex_a.z as usize),
+                            *heights.0.get_unchecked(vertex_b.z as usize),
+                            *heights.0.get_unchecked(vertex_c.z as usize),
+                            *heights.0.get_unchecked(vertex_d.z as usize),
+                            local_x.z,
+                            local_z.z,
+                        ),
+                        get_height_at_position_in_quad(
+                            *heights.0.get_unchecked(vertex_a.w as usize),
+                            *heights.0.get_unchecked(vertex_b.w as usize),
+                            *heights.0.get_unchecked(vertex_c.w as usize),
+                            *heights.0.get_unchecked(vertex_d.w as usize),
+                            local_x.w,
+                            local_z.w,
+                        )
+                    )
+                };
 
-                        let mut applied = false;
-                        let (falloff, easing_function) = texture_modifier_falloff
-                            .map(|falloff| (falloff.falloff, falloff.easing_function))
-                            .or(modifier_falloff
-                                .map(|falloff| (falloff.falloff, falloff.easing_function)))
-                            .unwrap_or((f32::EPSILON, EasingFunction::Linear));
+                // Skip the bounds checks.
+                let normal_angle = unsafe {
+                    Vec4::new(
+                        get_normal_at_position_in_quad(
+                            (*normals.get_unchecked(vertex_a.x as usize)).into(),
+                            (*normals.get_unchecked(vertex_b.x as usize)).into(),
+                            (*normals.get_unchecked(vertex_c.x as usize)).into(),
+                            (*normals.get_unchecked(vertex_d.x as usize)).into(),
+                            local_x.x,
+                            local_z.x,
+                        ).dot(Vec3::Y).acos(),
+                        get_normal_at_position_in_quad(
+                            (*normals.get_unchecked(vertex_a.y as usize)).into(),
+                            (*normals.get_unchecked(vertex_b.y as usize)).into(),
+                            (*normals.get_unchecked(vertex_c.y as usize)).into(),
+                            (*normals.get_unchecked(vertex_d.y as usize)).into(),
+                            local_x.y,
+                            local_z.y,
+                        ).dot(Vec3::Y).acos(),
+                        get_normal_at_position_in_quad(
+                            (*normals.get_unchecked(vertex_a.z as usize)).into(),
+                            (*normals.get_unchecked(vertex_b.z as usize)).into(),
+                            (*normals.get_unchecked(vertex_c.z as usize)).into(),
+                            (*normals.get_unchecked(vertex_d.z as usize)).into(),
+                            local_x.z,
+                            local_z.z,
+                        ).dot(Vec3::Y).acos(),
+                        get_normal_at_position_in_quad(
+                            (*normals.get_unchecked(vertex_a.w as usize)).into(),
+                            (*normals.get_unchecked(vertex_b.w as usize)).into(),
+                            (*normals.get_unchecked(vertex_c.w as usize)).into(),
+                            (*normals.get_unchecked(vertex_d.w as usize)).into(),
+                            local_x.w,
+                            local_z.w,
+                        ).dot(Vec3::Y).acos(),
+                    )
+                };
 
-                        // Cache the noise index.
-                        let modifier_falloff_noise = modifier_falloff_noise.map(|falloff_noise| {
-                            (
-                                falloff_noise,
-                                noise_resources.1.get_simplex_index(falloff_noise.noise.seed),
-                            )
-                        });
+                let strength = if let Some(evaluator) = rule.evaluators.first() {
+                    let initial_strength = evaluator.eval_simd(height_at_position, normal_angle, &biome_samples);
 
-                        for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                            let (x, z) = index_to_x_z(i, resolution as usize);
+                    rule.evaluators.iter().skip(1).fold(initial_strength, |acc, filter| {
+                        let eval_sample = filter.eval_simd(height_at_position, normal_angle, &biome_samples);
+                    
+                        rule.evaulator_combinator.combine_simd(acc, eval_sample)
+                    })
+                } else {
+                    Vec4::ONE
+                };
 
-                            let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                            let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                            let overlap_index = overlap_y * 8 + overlaps_x;
-                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                continue;
-                            }
+                // Apply texture.
+                let strength = strength * Vec4::splat(255.0);
+                
+                if strength.cmpge(Vec4::splat(f32::EPSILON)).any() {
+                    apply_texture(&mut val[0..4], texture_channel, strength.x as u8);
+                    apply_texture(&mut val[4..8], texture_channel, strength.y as u8);
+                    apply_texture(&mut val[8..12], texture_channel, strength.z as u8);
+                    apply_texture(&mut val[12..16], texture_channel, strength.w as u8);
 
-                            let pixel_position = terrain_translation
-                                + Vec2::new(x as f32 * scale, z as f32 * scale);
-
-                            let strength = calc_shape_modifier_strength(&noise_resources.1, falloff, modifier_falloff_noise, pixel_position, shape_modifier, modifier_strength_limit, global_transform);
-                            let eased_strength = easing_function.ease(strength);
-
-                            // Apply texture.
-                            let scaled_strength = (eased_strength * 255.0) as u8;
-                            if scaled_strength > 0 {
-                                apply_texture(val, texture_channel, scaled_strength);
-                                applied = true;
-                            }
-                        }
-
-                        if is_new && !applied {
-                            material.clear_slot(texture_channel);
-                        }
-                    }
+                    applied = true;
                 }
             }
 
-            // Finally, set by splines.
-            if let Some(splines) = tile_to_modifier.splines.get(&terrain_coordinate.0) {
-                let _span = info_span!("Apply splines").entered();
+            if is_new && !applied {
+                splat_map.textures[texture_channel] = None;
+                splat_map.normal_textures[texture_channel] = None;
+            }
+        }
+    }
+    
+    // Secondly, set by shape-modifiers.
+    {
+        let _span = info_span!("Apply shape modifiers").entered();
 
-                for entry in splines.iter() {
-                    if let Ok((
-                        texture_modifier,
-                        spline,
-                        spline_properties,
-                        modifier_falloff,
-                        texture_modifier_falloff,
-                    )) = spline_query.get(entry.entity)
-                    {
-                        let Some((texture_channel, is_new)) = material.get_texture_slot(
-                            &texture_modifier.texture,
-                            &texture_modifier.normal_texture,
-                            texture_modifier.units_per_texture,
-                            tile_size,
-                        ) else {
-                            info!("Hit max texture channels.");
-                            continue;
-                        };
-                        let (falloff, easing_function) = texture_modifier_falloff
-                            .map(|falloff| (falloff.falloff, falloff.easing_function))
-                            .or(modifier_falloff
-                                .map(|falloff| (falloff.falloff, falloff.easing_function)))
-                            .unwrap_or((f32::EPSILON, EasingFunction::Linear));
+        for entry in shapes.iter() {
+            let Some((texture_channel, is_new)) = splat_map.get_texture_slot(
+                &entry.texture_modifier.texture,
+                &entry.texture_modifier.normal_texture,
+                entry.texture_modifier.units_per_texture,
+                cached_terrain_details.tile_size,
+            ) else {
+                info!("Hit max texture channels.");
+                continue;
+            };
 
-                        let mut applied = false;
+            let mut applied = false;
+            let (falloff, easing_function) = entry.texture_modifier_falloff.as_ref()
+                .map(|falloff| (falloff.falloff, falloff.easing_function))
+                .or(entry.modifier_falloff.as_ref()
+                    .map(|falloff| (falloff.falloff, falloff.easing_function)))
+                .unwrap_or((f32::EPSILON, EasingFunction::Linear));
 
-                        for (i, val) in texture.data.chunks_exact_mut(4).enumerate() {
-                            let (x, z) = index_to_x_z(i, resolution as usize);
+            // Cache the noise index.
+            let modifier_falloff_noise = entry.modifier_falloff_noise.as_ref().map(|falloff_noise| {
+                (
+                    falloff_noise,
+                    noise_cache.get_simplex_index(falloff_noise.noise.seed),
+                )
+            });
 
-                            let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
-                            let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
-                            let overlap_index = overlap_y * 8 + overlaps_x;
-                            if (entry.overlap_bits & 1 << overlap_index) == 0 {
-                                continue;
-                            }
+            for (i, val) in splat_map.data.chunks_exact_mut(4).enumerate() {
+                let (x, z) = index_to_x_z(i, resolution as usize);
 
-                            let vertex_position =
-                                terrain_translation + Vec2::new(x as f32, z as f32) * scale;
-                            let mut distance = f32::INFINITY;
+                let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
+                let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
+                let overlap_index = overlap_y * 8 + overlaps_x;
+                if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                    continue;
+                }
 
-                            for points in spline.points.windows(2) {
-                                let a_2d = points[0].xz();
-                                let b_2d = points[1].xz();
+                let pixel_position = terrain_translation
+                    + Vec2::new(x as f32 * scale, z as f32 * scale);
 
-                                let (new_distance, _) =
-                                    distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
+                let strength = calc_shape_modifier_strength(&noise_cache, falloff, modifier_falloff_noise, pixel_position, &entry.shape_modifier, entry.modifier_strength_limit.as_ref(), &entry.global_transform);
+                let eased_strength = easing_function.ease(strength);
 
-                                if new_distance < distance {
-                                    distance = new_distance;
-                                }
-                            }
-
-                            let strength = (1.0
-                                - ((distance.sqrt() - spline_properties.half_width) / falloff))
-                                .clamp(0.0, texture_modifier.max_strength);
-                            let eased_strength = easing_function.ease(strength);
-
-                            // Apply texture.
-                            // Apply texture.
-                            let scaled_strength = (eased_strength * 255.0) as u8;
-                            if scaled_strength > 0 {
-                                apply_texture(val, texture_channel, scaled_strength);
-                                applied = true;
-                            }
-                        }
-                        
-                        if is_new && !applied {
-                            material.clear_slot(texture_channel);
-                        }
-                    }
+                // Apply texture.
+                let scaled_strength = (eased_strength * 255.0) as u8;
+                if scaled_strength > 0 {
+                    apply_texture(val, texture_channel, scaled_strength);
+                    applied = true;
                 }
             }
-        });
+
+            if is_new && !applied {
+                splat_map.textures[texture_channel] = None;
+                splat_map.normal_textures[texture_channel] = None;
+            }
+        }
+    }
+
+    {
+        let _span = info_span!("Apply splines").entered();
+
+        for entry in splines.iter() {
+            let Some((texture_channel, is_new)) = splat_map.get_texture_slot(
+                &entry.texture_modifier.texture,
+                &entry.texture_modifier.normal_texture,
+                entry.texture_modifier.units_per_texture,
+                cached_terrain_details.tile_size,
+            ) else {
+                info!("Hit max texture channels.");
+                continue;
+            };
+            let (falloff, easing_function) = entry.texture_modifier_falloff.as_ref()
+                .map(|falloff| (falloff.falloff, falloff.easing_function))
+                .or(entry.modifier_falloff.as_ref()
+                    .map(|falloff| (falloff.falloff, falloff.easing_function)))
+                .unwrap_or((f32::EPSILON, EasingFunction::Linear));
+
+            let mut applied = false;
+
+            for (i, val) in splat_map.data.chunks_exact_mut(4).enumerate() {
+                let (x, z) = index_to_x_z(i, resolution as usize);
+
+                let overlaps_x = (x as f32 * inv_tile_size_scale) as u32;
+                let overlap_y = (z as f32 * inv_tile_size_scale) as u32;
+                let overlap_index = overlap_y * 8 + overlaps_x;
+                if (entry.overlap_bits & 1 << overlap_index) == 0 {
+                    continue;
+                }
+
+                let vertex_position =
+                    terrain_translation + Vec2::new(x as f32, z as f32) * scale;
+                let mut distance = f32::INFINITY;
+
+                for points in entry.spline.points.windows(2) {
+                    let a_2d = points[0].xz();
+                    let b_2d = points[1].xz();
+
+                    let (new_distance, _) =
+                        distance_squared_to_line_segment(a_2d, b_2d, vertex_position);
+
+                    if new_distance < distance {
+                        distance = new_distance;
+                    }
+                }
+
+                let strength = (1.0
+                    - ((distance.sqrt() - entry.spline_properties.half_width) / falloff))
+                    .clamp(0.0, entry.texture_modifier.max_strength);
+                let eased_strength = easing_function.ease(strength);
+
+                // Apply texture.
+                // Apply texture.
+                let scaled_strength = (eased_strength * 255.0) as u8;
+                if scaled_strength > 0 {
+                    apply_texture(val, texture_channel, scaled_strength);
+                    applied = true;
+                }
+            }
+            
+            if is_new && !applied {
+                splat_map.textures[texture_channel] = None;
+                splat_map.normal_textures[texture_channel] = None;
+            }
+        }
+    }
+
+    splat_map
 }
 
 pub fn apply_texture(channels: &mut [u8], target_channel: usize, strength: u8) {

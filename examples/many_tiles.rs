@@ -220,7 +220,7 @@ fn main() {
         },
         texturing_settings: Some(TerrainTexturingSettings {
             texture_resolution_power: NonZeroU8::new(7 + 2).unwrap(),
-            max_tile_updates_per_frame: NonZeroU8::new(2).unwrap(),
+            max_texture_generation_tasks: NonZeroU8::new(4).unwrap(),
         }),
         debug_draw: true,
     });
