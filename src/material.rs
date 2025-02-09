@@ -478,7 +478,7 @@ fn update_terrain_texture_maps(
     tile_to_terrain: Res<TileToTerrain>,
     mut event_reader: EventReader<TerrainMeshRebuilt>,
     mut tile_generate_queue: ResMut<TerrainTextureRebuildQueue>,
-    meshes: Res<Assets<Mesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     noise_resources: (
         Res<TerrainNoiseSettings>,
         Res<NoiseCache>,
@@ -534,7 +534,7 @@ fn update_terrain_texture_maps(
         );
 
     while let Some((entity, heights, mesh, terrain_coordinate, aabb, tile_biomes, texture_generation_task)) = iter.fetch_next(){
-        let Some(mesh) = meshes.get(mesh) else {
+        let Some(mesh) = meshes.get_mut(mesh) else {
             return;
         };
         
@@ -551,6 +551,10 @@ fn update_terrain_texture_maps(
             .unwrap()
             .to_vec()
             .into_boxed_slice();
+
+        // Since we have grabbed the normals now, we can drop the mesh from the CPU.
+        // This does mean you can't redo texture generation without redoing the mesh generation but I think the memory savings are worth it.
+        mesh.asset_usage = RenderAssetUsages::RENDER_WORLD;
 
         let shapes = if let Some(shapes) = tile_to_modifier.shape.get(&terrain_coordinate.0) {
             shapes.iter().filter_map(|shape| {

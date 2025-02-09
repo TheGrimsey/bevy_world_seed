@@ -63,7 +63,7 @@ pub struct TerrainMeshRebuilt(pub IVec2);
 fn update_mesh_from_heights(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut query: Query<(Entity, &Heights, Option<&Mesh3d>, &Holes, &mut Aabb)>,
+    mut query: Query<(Entity, &Heights, Option<&mut Mesh3d>, &Holes, &mut Aabb)>,
     heights_query: Query<&Heights>,
     terrain_settings: Res<TerrainSettings>,
     tile_to_terrain: Res<TileToTerrain>,
@@ -145,13 +145,12 @@ fn update_mesh_from_heights(
                 &neighbors,
                 holes,
             );
+            let mesh = meshes.add(mesh);
 
-            if let Some(existing_mesh) = mesh_handle.and_then(|handle| meshes.get_mut(handle)) {
-                *existing_mesh = mesh;
+            if let Some(mut existing_mesh) = mesh_handle {
+                existing_mesh.0 = mesh;
             } else {
-                let new_handle = meshes.add(mesh);
-
-                commands.entity(entity).insert(Mesh3d(new_handle));
+                commands.entity(entity).insert(Mesh3d(mesh));
             }
 
             let (min, max) = heights
